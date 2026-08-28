@@ -1,11 +1,18 @@
 import { signInWithPopup } from 'firebase/auth'
 import React from 'react'
 import { auth, googleProvider } from '../firebase'
+import { login } from './features/login'
 
 function App() {
+
+  
+
+
+
   const handleLogin = async()=>{
-    const data = await signInWithPopup(auth,googleProvider)
-    const token = await data.user.getIdToken()
+    const result = await signInWithPopup(auth,googleProvider)
+    const token = await result.user.getIdToken()
+    const data = await login(token)
   }
   return (
     <div>
