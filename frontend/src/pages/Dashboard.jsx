@@ -1,6 +1,25 @@
+import { signInWithPopup } from 'firebase/auth';
 import React from 'react'
 import { FcGoogle } from "react-icons/fc";
+import { auth, googleProvider } from '../../firebase';
+import { login } from '../features/login';
+import { useState } from 'react';
 function Dashboard() {
+    const [loading,setLoading] = useState(false)
+   
+    
+      const handleLogin = async()=>{
+        setLoading(true)
+        const result = await signInWithPopup(auth,googleProvider)
+        const token = await result.user.getIdToken()
+        const data = await login(token)
+        setLoading(false)
+      }
+
+
+
+
+
     return (
         <div className='relative flex
          h-screen w-full 
@@ -45,13 +64,19 @@ function Dashboard() {
                     Sign in to access your projects and continue building
                 </p>
 
-                <button className='flex w-full items-center justify-center gap-3 rounded-lg border border-slate-200 
+                <button 
+                onClick={handleLogin}
+                disabled={loading}
+                className='flex w-full items-center justify-center gap-3 rounded-lg border border-slate-200 
                 bg-white py-2.5 text-[13.5px] font-medium text-slate-800 shadow-sm transition-colors duration-150 
                 hover:bg-slate-50 disabled:opacity-70 dark:border-transparent dark:bg-white dark:hover:bg-slate-100
 '>
                     <FcGoogle />
-                    Continue with Google
+                    {loading?"Signing in...":"Continue with Google"}
                 </button>
+                <p className='mt-5 text-[11px] text-slate-400 dark:text-slate-600'>
+                    By continuing you agree to our Terms & privacy Policy
+                </p>
 
             </div>
         </div>

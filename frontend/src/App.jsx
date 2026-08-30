@@ -11,11 +11,6 @@ function App() {
 
 
 
-  const handleLogin = async()=>{
-    const result = await signInWithPopup(auth,googleProvider)
-    const token = await result.user.getIdToken()
-    const data = await login(token)
-  }
   return (
     <BrowserRouter>
     <Routes>
