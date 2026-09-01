@@ -3,7 +3,7 @@ import mongoose from "mongoose";
 const projectSchema = new mongoose.Schema({
       owner:{
         type:mongoose.Schema.Types.ObjectId,
-        ref:"user",
+        ref:"User",
         required:true
       },
       name:{
@@ -14,12 +14,12 @@ const projectSchema = new mongoose.Schema({
         type:String
       },
       starred:{
-        typr:Boolean,
+        type:Boolean,
         default:false
       },
       lastOpenedAt:{
           type:Date,
-          default:Date.now()
+          default:Date.now
       }
 
 
