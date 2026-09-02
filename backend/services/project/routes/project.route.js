@@ -15,7 +15,7 @@ router.post("/",createProject)
 router.get("/", getProjects)
 router.get("/starred", getStarredProjects)
 router.get("/:id", getProjectById)
-router.patch("/:id", toggleStar)
+router.patch("/:id/star", toggleStar)
 router.delete("/:id", deleteProject)
 
 export default router
