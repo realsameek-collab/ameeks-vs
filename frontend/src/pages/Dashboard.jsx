@@ -97,6 +97,9 @@ if(!userData){
 
         <div className='relative flex min-h-0 flex-1 flex-col'>
            <NaNvBar />
+           <div className='flex min-h-0 flex-1'>
+
+           </div>
         </div>
     </div>
    )

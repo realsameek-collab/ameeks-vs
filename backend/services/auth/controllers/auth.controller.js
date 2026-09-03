@@ -32,7 +32,7 @@ export const login = async (req,res)=>{
         res.cookie("session",sessionId,{
             httpOnly:true,
             secure:false,
-            samesite:"strict",
+            sameSite:"strict",
             maxAge:7*24*60*60*1000
         })
 
