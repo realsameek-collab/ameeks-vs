@@ -50,7 +50,7 @@ export const getProjects = async (req, res) => {
             owner: userId
         }).sort({ updatedAt: -1 })
 
-        await redis.set(key, JSON.stringify(projects))
+        await redis.set(key, JSON.stringify(projects), "EX", 300)
 
         return res.status(200).json(projects)
 
@@ -116,7 +116,7 @@ export const getStarredProjects = async (req, res) => {
             starred: true
         }).sort({ updatedAt: -1 })
 
-        await redis.set(key, JSON.stringify(projects))
+        await redis.set(key, JSON.stringify(projects), "EX", 300)
 
         return res.status(200).json(projects)
 

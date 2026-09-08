@@ -1,6 +1,6 @@
 import { api } from "../utils/axios"
 
-export const createProject=async(name,description)=>{
+export const createProject=async({name,description})=>{
        try {
         const {data} = await api.post("/api/projects", { name, description })
         return data
@@ -40,7 +40,7 @@ export const getStarredProjects=async()=>{
        }
 }
 
-export const toggleStarred=async(id)=>{
+export const toggleStar=async(id)=>{
        try {
         const {data} = await api.patch(`/api/projects/${id}/star`)
         return data

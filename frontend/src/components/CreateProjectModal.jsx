@@ -13,9 +13,10 @@ function CreateProjectModal({ openModal, onClose }) {
     const handlecreateProject = async () => {
         setLodaing(true)
         const data = await createProject({name,description})
-        onClose()
+        setLodaing(false)
+        if(!data) return
         dispatch(addNewProject(data))
-         setLodaing(false)
+        onClose()
     }
     return (
         <div className='fixed inset-0 z-50 flex items-center justify-center p-4'>

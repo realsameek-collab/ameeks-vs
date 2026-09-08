@@ -39,7 +39,7 @@ function Dashboard() {
 
     const fetchStarredProjects = async () => {
         const data = await getStarredProjects();
-        dispatch(setProjects(data));
+        dispatch(setStarredProjects(data));
     };
 
     useEffect(() => {
@@ -209,8 +209,8 @@ function Dashboard() {
                             </div>
                         ) : (
                             <div className='mb-8 grid grid-col-1 gap-4 sm:grid-cols-2 lg:grid-col-4'>
-                                {projects.map((p, i) => (
-                                    <ProjectCard project={p}/>
+                                {currentProjects.map((p) => (
+                                    <ProjectCard key={p._id} project={p}/>
                                 ))}
 
                             </div>
