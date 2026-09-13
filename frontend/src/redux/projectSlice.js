@@ -15,6 +15,11 @@ const projectSlice = createSlice({
         setStarredProjects:(state,action)=>{
             state.starredProjects=action.payload
         },
+        removeProject:(state,action)=>{
+            const id = action.payload
+            state.projects = state.projects.filter(p=>p._id!==id)
+            state.starredProjects = state.starredProjects.filter(p=>p._id!==id)
+        },
         setProjectStar:(state,action)=>{
             const {id, starred} = action.payload
 
@@ -37,6 +42,6 @@ const projectSlice = createSlice({
     }
 })
 
-export const {setProjects, addNewProject, setStarredProjects, setProjectStar} = projectSlice.actions
+export const {setProjects, addNewProject, setStarredProjects, removeProject, setProjectStar} = projectSlice.actions
 
 export default projectSlice.reducer
