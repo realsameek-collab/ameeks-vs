@@ -10,6 +10,10 @@ export const protect = async (req,res,next)=>{
             return res.status(401).json({message:"session not found"})
         }
         const data = JSON.parse(result)
+        if(!data?._id){
+            await redis.del(`session-${sessionId}`)
+            return res.status(401).json({message:"invalid session, please login again"})
+        }
         req.user = data
         next()
        } catch (error) {
