@@ -7,7 +7,7 @@ const port = process.env.PORT || 8003
 
 const app = express()
 app.use(express.json())
-
+app.use("/", router)
 app.get("/",(req,res)=>{
    res.json({"message":"Hello from file service!"})
 })
