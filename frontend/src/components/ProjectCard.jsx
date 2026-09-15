@@ -10,12 +10,18 @@ import {
 } from 'lucide-react'
 import { useDispatch } from 'react-redux'
 import { deleteProject, toggleStar } from '../features/project'
-import { setProjectStar, removeProject } from '../redux/projectSlice'
+import {
+  setProjectStar,
+  removeProject,
+  setCurrentProject,
+} from '../redux/projectSlice'
+import { useNavigate } from 'react-router-dom'
 
 function ProjectCard({ project }) {
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [isDeleting, setIsDeleting] = useState(false)
   const [deleteError, setDeleteError] = useState(false)
+  const navigate = useNavigate()
   const dispatch = useDispatch()
 
   const handleToggleStar = async (e) => {
@@ -68,6 +74,12 @@ function ProjectCard({ project }) {
       exit={{ opacity: 0, scale: 0.97 }}
       whileHover={{ y: -3 }}
       transition={{ duration: 0.2, ease: 'easeOut' }}
+      onClick={() => {
+        dispatch(setCurrentProject(project))
+        navigate(`/project/${project._id}`)
+      
+      
+      }}
       className="
         group relative flex min-h-[190px] cursor-pointer flex-col overflow-hidden
         rounded-2xl border border-black/[0.07] bg-white
