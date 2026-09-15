@@ -1,12 +1,12 @@
 
-import React, { useState } from 'react'
+import React from 'react'
 import { useSelector } from 'react-redux'
 import { motion } from 'motion/react'
 import { Eye, Code2 } from 'lucide-react'
 
-function TopBar() {
+function TopBar({showpreview, setShowPreview}) {
     const currentProject = useSelector((state) => state.project)
-    const [showpreview, setShowPreview] = useState(false)
+    
 
     return (
         <div className='relative flex h-12 items-center justify-between border-b border-white/[0.06] bg-[#111113]/90 px-4 backdrop-blur-xl'>

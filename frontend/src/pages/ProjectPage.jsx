@@ -1,12 +1,19 @@
-import React, { useEffect } from 'react'
+import React, { useEffect, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { useDispatch, useSelector } from 'react-redux'
 import TopBar from '../components/TopBar'
 import { getProject } from '../features/project'
 import { setCurrentProject } from '../redux/projectSlice'
 import ActivityBar from '../components/ActivityBar'
+import Explorer from '../components/Explorer'
+import { AnimatePresence } from 'motion/react'
 
 function ProjectPage() {
+
+  const [showExplorer, setShowExplorer] = useState(false)
+  const [showChat, setShowChat] = useState(false)
+  const [showTerminal, setShowTerminal] = useState(false)
+  const [showpreview, setShowPreview] = useState(false)
   const { id } = useParams()
   const dispatch = useDispatch()
   const currentProject = useSelector((state) => state.project.currentProject)
@@ -26,9 +33,24 @@ function ProjectPage() {
     <div className='relative flex h-screen flex-col overflow-hidden bg-[#0a0a0c]'>
         <div className='pointer-events-none absolute -top-40 left-1/3 h-96 w-96 rounded-full bg-sky-500/10 blur-[140px]'/>
         <div className='pointer-events-none absolute -top-20 right-1/4 h-80 w-80 rounded-full bg-violet-500/10 blur-[140px]'/>
-        <TopBar/>
+        <TopBar
+        showpreview={showpreview}
+        setShowPreview={setShowPreview}
+        />
         <div className='flex flex-1 overflow-hidden'>
-           <ActivityBar/>
+           <ActivityBar
+           showExplorer={showExplorer}
+           setShowExplorer={setShowExplorer}
+           showChat={showChat}
+           setShowChat={setShowChat}
+           showTerminal={showTerminal}
+           setShowTerminal={setShowTerminal}
+           />
+           <AnimatePresence initial={false}>
+            {showExplorer && (
+              <Explorer/>
+            )}
+           </AnimatePresence>
         </div>
     </div>
   )
