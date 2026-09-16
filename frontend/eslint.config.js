@@ -17,5 +17,10 @@ export default defineConfig([
       globals: globals.browser,
       parserOptions: { ecmaFeatures: { jsx: true } },
     },
+    rules: {
+      // React 19's automatic JSX runtime makes `import React` unnecessary but
+      // harmless. Flagging it as an error buried real findings like no-undef.
+      'no-unused-vars': ['error', { varsIgnorePattern: '^React$' }],
+    },
   },
 ])

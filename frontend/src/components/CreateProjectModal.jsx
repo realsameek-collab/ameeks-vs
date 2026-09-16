@@ -2,21 +2,42 @@ import React, { useState } from 'react'
 import { motion } from "motion/react"
 import { X } from 'lucide-react'
 import { createProject } from '../features/project'
+import { createRootFolder } from '../features/file'
 import { useDispatch } from 'react-redux'
 import { addNewProject } from '../redux/projectSlice'
-function CreateProjectModal({ openModal, onClose }) {
+function CreateProjectModal({ onClose }) {
     const [name,setName] = useState("")
     const [description,setDescription] = useState("")
     const [loading,setLodaing] = useState(false)
+    const [error,setError] = useState("")
     const dispatch = useDispatch()
 
     const handlecreateProject = async () => {
+        if(!name.trim()){
+            setError("Project name is required")
+            return
+        }
+        setError("")
         setLodaing(true)
-        const data = await createProject({name,description})
-        setLodaing(false)
-        if(!data) return
-        dispatch(addNewProject(data))
-        onClose()
+        try {
+            const data = await createProject({name,description})
+            if(!data){
+                setError("Could not create the project. Please try again.")
+                return
+            }
+            // The project exists from here on, so keep it in the store either way;
+            // retrying the whole modal would create a duplicate.
+            dispatch(addNewProject(data))
+
+            const root = await createRootFolder({projectId:data._id,projectName:data.name})
+            if(!root){
+                setError("Project created, but its root folder failed. Open the project to retry.")
+                return
+            }
+            onClose()
+        } finally {
+            setLodaing(false)
+        }
     }
     return (
         <div className='fixed inset-0 z-50 flex items-center justify-center p-4'>
@@ -82,7 +103,8 @@ function CreateProjectModal({ openModal, onClose }) {
                             Project Name
                         </div>
                         <input
-                        onChange={(e)=>setName(e.target.value)}
+                            value={name}
+                            onChange={(e)=>setName(e.target.value)}
                             placeholder="My Awesome Project"
                             autoFocus
                             className="w-full rounded-xl border border-black/[0.08] bg-black/[0.02] px-4 py-3 text-[15px] text-zinc-900 
@@ -97,10 +119,10 @@ function CreateProjectModal({ openModal, onClose }) {
                             Description
                         </div>
                         <textarea
+                            value={description}
                             onChange={(e)=>setDescription(e.target.value)}
-                            row={5}
+                            rows={5}
                             placeholder="What is the Project About"
-                            autoFocus
                             className="w-full rounded-xl border border-black/[0.08] bg-black/[0.02] px-4 py-3 text-[15px] text-zinc-900 
                             placeholder-zinc-400 outline-none transition-all focus:border-sky-400/60 focus:bg-white focus:ring-4
                              focus:ring-sky-400/15 dark:border-white/[0.09] dark:bg-white/[0.04] dark:text-white dark:placeholder-zinc-500 
@@ -108,6 +130,12 @@ function CreateProjectModal({ openModal, onClose }) {
                         />
 
                     </div>
+
+                    {error && (
+                        <p className='rounded-xl border border-red-500/20 bg-red-500/[0.06] px-4 py-3 text-[13px] text-red-600 dark:text-red-400'>
+                            {error}
+                        </p>
+                    )}
 
                 </div>
                 <div className='flex justify-end gap-3 border-t border-black/[0.06] px-7 py-5 dark:border-white/[0.08]'>
@@ -122,6 +150,7 @@ function CreateProjectModal({ openModal, onClose }) {
                     </button>
                     <button
                          onClick={handlecreateProject}
+                         disabled={loading}
                         className="rounded-xl bg-zinc-900 px-5 py-2.5 text-sm font-medium text-white 
                         shadow-[0_1px_0_rgba(255,255,255,0.15)_inset,0_8px_24px_-8px_rgba(0,0,0,0.4)] transition-all 
                         hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-40 dark:bg-white dark:text-zinc-900 

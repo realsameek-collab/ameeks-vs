@@ -220,7 +220,6 @@ function Dashboard() {
                 </div>
             </div>
             {OpenModal && <CreateProjectModal
-                open={OpenModal}
                 onClose={() => setOpenModal(false)}
             />}
 
