@@ -3,6 +3,7 @@ import { useParams } from 'react-router-dom'
 import { useDispatch, useSelector } from 'react-redux'
 import TopBar from '../components/TopBar'
 import { getProject } from '../features/project'
+import { getTree } from '../features/file'
 import { setCurrentProject } from '../redux/projectSlice'
 import ActivityBar from '../components/ActivityBar'
 import Explorer from '../components/Explorer'
@@ -14,11 +15,16 @@ function ProjectPage() {
   const [showChat, setShowChat] = useState(false)
   const [showTerminal, setShowTerminal] = useState(false)
   const [showpreview, setShowPreview] = useState(false)
+  const [tree,setTree] = useState([])
   const { id } = useParams()
   const dispatch = useDispatch()
   const currentProject = useSelector((state) => state.project.currentProject)
-
+  const loadTree = async () => {
+    const data = await getTree(id)
+    setTree(data)
+  }
   useEffect(() => {
+    loadTree()
     // Redux is cleared on refresh, so load the project from the URL id when needed
     if (currentProject?._id === id) return
 
@@ -48,7 +54,12 @@ function ProjectPage() {
            />
            <AnimatePresence initial={false}>
             {showExplorer && (
-              <Explorer/>
+              <Explorer
+              projectId={id}
+              tree={tree}
+              reloadTree={loadTree}
+              
+              />
             )}
            </AnimatePresence>
         </div>
