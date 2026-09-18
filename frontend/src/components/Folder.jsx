@@ -33,7 +33,7 @@ import {
     SiDocker
 } from 'react-icons/si'
 import { getFolderColor } from '../utils/customizeIcon'
-import { createFolder, createFile, deleteFile } from '../features/file'
+import { createFolder, createFile, updateFile, deleteFile } from '../features/file'
 import { createPortal } from 'react-dom'
 
 function Folder({
@@ -74,6 +74,16 @@ function Folder({
     const handleDelete = async (folder) => {
         if (!folder?._id) return
         await deleteFile(folder._id)
+        await reloadTree()
+    }
+
+    const handleRename = async (file) => {
+        if (!file?._id) return
+
+        const name = window.prompt("Rename file", file.name)
+        if (!name || name === file.name) return
+
+        await updateFile(file._id, { name })
         await reloadTree()
     }
 
@@ -140,29 +150,6 @@ function Folder({
                         </span>
                     </div>
 
-                    <div className='flex items-center gap-0.5 invisible group-hover:visible'>
-                        <button
-                            className="rounded-md p-0.5 text-zinc-500 hover:bg-white/10 hover:text-white"
-                            onClick={(e) => {
-                                e.stopPropagation()
-                                handleNewFile(node)
-                                setOpen(true)
-                            }}
-                        >
-                            <FilePlus2 size={14} />
-                        </button>
-
-                        <button
-                            className="rounded-md p-0.5 text-zinc-500 hover:bg-white/10 hover:text-white"
-                            onClick={(e) => {
-                                e.stopPropagation()
-                                handleNewFolder(node)
-                                setOpen(true)
-                            }}
-                        >
-                            <FolderPlus size={14} />
-                        </button>
-                    </div>
                 </motion.div>
 
                 {menu && createPortal(
@@ -187,29 +174,8 @@ function Folder({
                                 className="mx-1 flex w-[calc(100%-8px)] items-center gap-2 rounded-md px-3 py-2 text-left text-[13px] text-zinc-300 transition-colors hover:bg-white/[0.06] hover:text-white"
                                 onClick={() => {
                                     setMenu(null)
-                                    handleNewFile(node)
+                                    handleRename(node)
                                 }}
-                            >
-                                <FilePlus2 size={14} />
-                                New File
-                            </button>
-
-                            <button
-                                className="mx-1 flex w-[calc(100%-8px)] items-center gap-2 rounded-md px-3 py-2 text-left text-[13px] text-zinc-300 transition-colors hover:bg-white/[0.06] hover:text-white"
-                                onClick={() => {
-                                    setMenu(null)
-                                    handleNewFolder(node)
-                                }}
-                            >
-                                <FolderPlus size={14} />
-                                New Folder
-                            </button>
-
-                            <div className="my-1 h-px bg-white/[0.08]" />
-
-                            <button
-                                className="mx-1 flex w-[calc(100%-8px)] items-center gap-2 rounded-md px-3 py-2 text-left text-[13px] text-zinc-300 transition-colors hover:bg-white/[0.06] hover:text-white"
-                                onClick={() => setMenu(null)}
                             >
                                 <Pencil size={14} />
                                 Rename
