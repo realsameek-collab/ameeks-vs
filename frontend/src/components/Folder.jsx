@@ -49,24 +49,47 @@ function Folder({
     const FolderColor = getFolderColor(node?.name)
     const [creatingFolderIn, setCreatingFolderIn] = useState(null)
     const [creatingFileIn, setCreatingFileIn] = useState(null)
+    const [creationError, setCreationError] = useState("")
     const [menuPosition, setMenuPosition] = useState(null)
 
     const handleCreateFolder = async () => {
-        await createFolder({ projectId, name: folderName, parentId: node?._id })
+        const result = await createFolder({ projectId, name: folderName, parentId: node?._id })
+        if (result?.error) {
+            setCreationError(result.error.toLowerCase().includes("exist")
+                ? "This folder name already exists. Choose another name."
+                : result.error)
+            return
+        }
+
+        setCreationError("")
+        setFolderName("")
+        setCreatingFolderIn(null)
         await reloadTree()
     }
 
     const handleCreateFile = async () => {
-        await createFile({ projectId, name: fileName, parentId: node?._id })
+        const result = await createFile({ projectId, name: fileName, parentId: node?._id })
+        if (result?.error) {
+            setCreationError(result.error.toLowerCase().includes("exist")
+                ? "This file name already exists. Choose another name."
+                : result.error)
+            return
+        }
+
+        setCreationError("")
+        setFileName("")
+        setCreatingFileIn(null)
         await reloadTree()
     }
 
     const handleNewFolder = (folder) => {
+        setCreationError("")
         setCreatingFolderIn(folder?._id)
         setCreatingFileIn(null)
     }
 
     const handleNewFile = (folder) => {
+        setCreationError("")
         setCreatingFileIn(folder?._id)
         setCreatingFolderIn(null)
     }
@@ -228,20 +251,25 @@ function Folder({
                                 value={folderName}
                                 placeholder="Folder Name"
                                 className="w-full rounded-md border border-white/[0.1] bg-white/[0.04] px-2.5 py-1.5 text-[13px] text-white placeholder-zinc-500 outline-none transition-all focus:border-sky-400 focus:ring-2 focus:ring-sky-400/15"
-                                onChange={(e) => setFolderName(e.target.value)}
+                                onChange={(e) => {
+                                    setFolderName(e.target.value)
+                                    setCreationError("")
+                                }}
                                 onKeyDown={(e) => {
                                     if (e.key === "Enter") {
                                         handleCreateFolder()
-                                        setFolderName("")
-                                        setCreatingFolderIn(null)
                                     }
 
                                     if (e.key === "Escape") {
                                         setFolderName("")
+                                        setCreationError("")
                                         setCreatingFolderIn(null)
                                     }
                                 }}
                             />
+                            {creationError && (
+                                <p className="px-1 pt-1 text-[11px] text-red-400">{creationError}</p>
+                            )}
                         </div>
                     )
                 }
@@ -256,20 +284,25 @@ function Folder({
                                 value={fileName}
                                 placeholder="File Name"
                                 className="w-full rounded-md border border-white/[0.1] bg-white/[0.04] px-2.5 py-1.5 text-[13px] text-white placeholder-zinc-500 outline-none transition-all focus:border-sky-400 focus:ring-2 focus:ring-sky-400/15"
-                                onChange={(e) => setFileName(e.target.value)}
+                                onChange={(e) => {
+                                    setFileName(e.target.value)
+                                    setCreationError("")
+                                }}
                                 onKeyDown={(e) => {
                                     if (e.key === "Enter") {
                                         handleCreateFile()
-                                        setFileName("")
-                                        setCreatingFileIn(null)
                                     }
 
                                     if (e.key === "Escape") {
                                         setFileName("")
+                                        setCreationError("")
                                         setCreatingFileIn(null)
                                     }
                                 }}
                             />
+                            {creationError && (
+                                <p className="px-1 pt-1 text-[11px] text-red-400">{creationError}</p>
+                            )}
                         </div>
                     )
                 }
@@ -435,20 +468,25 @@ function Folder({
                             value={folderName}
                             placeholder="Folder Name"
                             className="w-full rounded-md border border-white/[0.1] bg-white/[0.04] px-2.5 py-1.5 text-[13px] text-white placeholder-zinc-500 outline-none transition-all focus:border-sky-400 focus:ring-2 focus:ring-sky-400/15"
-                            onChange={(e) => setFolderName(e.target.value)}
+                            onChange={(e) => {
+                                setFolderName(e.target.value)
+                                setCreationError("")
+                            }}
                             onKeyDown={(e) => {
                                 if (e.key === "Enter") {
                                     handleCreateFolder()
-                                    setFolderName("")
-                                    setCreatingFolderIn(null)
                                 }
 
                                 if (e.key === "Escape") {
                                     setFolderName("")
+                                    setCreationError("")
                                     setCreatingFolderIn(null)
                                 }
                             }}
                         />
+                        {creationError && (
+                            <p className="px-1 pt-1 text-[11px] text-red-400">{creationError}</p>
+                        )}
                     </div>
                 )
             }
@@ -463,20 +501,25 @@ function Folder({
                             value={fileName}
                             placeholder="File Name"
                             className="w-full rounded-md border border-white/[0.1] bg-white/[0.04] px-2.5 py-1.5 text-[13px] text-white placeholder-zinc-500 outline-none transition-all focus:border-sky-400 focus:ring-2 focus:ring-sky-400/15"
-                            onChange={(e) => setFileName(e.target.value)}
+                            onChange={(e) => {
+                                setFileName(e.target.value)
+                                setCreationError("")
+                            }}
                             onKeyDown={(e) => {
                                 if (e.key === "Enter") {
                                     handleCreateFile()
-                                    setFileName("")
-                                    setCreatingFileIn(null)
                                 }
 
                                 if (e.key === "Escape") {
                                     setFileName("")
+                                    setCreationError("")
                                     setCreatingFileIn(null)
                                 }
                             }}
                         />
+                        {creationError && (
+                            <p className="px-1 pt-1 text-[11px] text-red-400">{creationError}</p>
+                        )}
                     </div>
                 )
             }

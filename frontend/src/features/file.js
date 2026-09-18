@@ -9,7 +9,7 @@ export const createRootFolder = async ({ projectId, projectName }) => {
         return data
        } catch (error) {
         console.log(error)
-        return null
+              return { error: error.response?.data?.message || "Unable to create folder" }
        }
 }
 
@@ -23,7 +23,7 @@ export const createFolder = async ({ projectId, name, parentId }) => {
         return data
        } catch (error) {
         console.log(error)
-        return null
+        return { error: error.response?.data?.message || "Unable to create folder" }
        }
 }
 
@@ -39,7 +39,7 @@ export const createFile = async ({ projectId, name, parentId, content, language 
         return data
        } catch (error) {
         console.log(error)
-        return null
+              return { error: error.response?.data?.message || "Unable to create file" }
        }
 }
 
