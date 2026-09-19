@@ -4,34 +4,12 @@ import {
     ChevronRight, 
     FolderClosed, 
     FolderOpen, 
-    File, 
     FolderPlus, 
     FilePlus2, 
     Pencil, 
     Trash 
 } from 'lucide-react' 
-import { 
-    SiPython, 
-    SiReact, 
-    SiJavascript, 
-    SiTypescript, 
-    SiHtml5, 
-    SiCss, 
-    SiJson, 
-    SiOpenjdk, 
-    SiCplusplus, 
-    SiC, 
-    SiGo, 
-    SiRust, 
-    SiPhp, 
-    SiRuby, 
-    SiSwift, 
-    SiKotlin, 
-    SiMarkdown, 
-    SiYaml, 
-    SiDocker 
-} from 'react-icons/si' 
-import { getFolderColor } from '../utils/customizeIcon' 
+import { getFolderColor, getFileIcon } from '../utils/customizeIcon' 
 import { createFolder, createFile, updateFile, deleteFile } from '../features/file' 
 import { createPortal } from 'react-dom' 
  
@@ -39,6 +17,7 @@ function Folder({
     projectId, 
     tree, 
     reloadTree, 
+    openFile,
     node 
 }) { 
     const [folderName, setFolderName] = useState("") 
@@ -109,55 +88,7 @@ function Folder({
     } 
  
     if (node.type == 'file') { 
-        const fileName = node?.name?.toLowerCase() || ''
-        const extension = fileName.split('.').pop()?.toLowerCase() 
- 
-        const fileIcons = { 
-            py: [SiPython, 'text-[#3776AB]'], 
-            jsx: [SiReact, 'text-[#61DAFB]'], 
-            tsx: [SiReact, 'text-[#61DAFB]'], 
-            js: [SiJavascript, 'text-[#F7DF1E]'], 
-            mjs: [SiJavascript, 'text-[#F7DF1E]'], 
-            cjs: [SiJavascript, 'text-[#F7DF1E]'], 
-            ts: [SiTypescript, 'text-[#3178C6]'], 
-            html: [SiHtml5, 'text-[#E34F26]'], 
-            htm: [SiHtml5, 'text-[#E34F26]'], 
-            css: [SiCss, 'text-[#663399]'], 
-            scss: [SiCss, 'text-[#CC6699]'], 
-            sass: [SiCss, 'text-[#CC6699]'], 
-            json: [SiJson, 'text-[#F5A623]'], 
-            java: [SiOpenjdk, 'text-[#ED8B00]'], 
-            cpp: [SiCplusplus, 'text-[#00599C]'], 
-            cc: [SiCplusplus, 'text-[#00599C]'], 
-            cxx: [SiCplusplus, 'text-[#00599C]'], 
-            c: [SiC, 'text-[#A8B9CC]'], 
-            h: [SiC, 'text-[#A8B9CC]'], 
-            go: [SiGo, 'text-[#00ADD8]'], 
-            rs: [SiRust, 'text-[#DEA584]'], 
-            php: [SiPhp, 'text-[#777BB4]'], 
-            rb: [SiRuby, 'text-[#CC342D]'], 
-            swift: [SiSwift, 'text-[#F05138]'], 
-            kt: [SiKotlin, 'text-[#7F52FF]'], 
-            kts: [SiKotlin, 'text-[#7F52FF]'], 
-            md: [SiMarkdown, 'text-zinc-300'], 
-            markdown: [SiMarkdown, 'text-zinc-300'], 
-            yml: [SiYaml, 'text-[#CB171E]'], 
-            yaml: [SiYaml, 'text-[#CB171E]'], 
-            dockerfile: [SiDocker, 'text-[#2496ED]'] 
-        } 
- 
-        let FileIcon
-        let FileColor
-
-        if (
-            fileName === '.env' ||
-            fileName.startsWith('.env.')
-        ) {
-            FileIcon = File
-            FileColor = 'text-[#ECD53F]'
-        } else {
-            ;[FileIcon, FileColor] = fileIcons[extension] || [File, 'text-zinc-400']
-        }
+        const { icon: FileIcon, color: FileColor } = getFileIcon(node?.name)
  
         return ( 
             <div className='relative'> 
@@ -171,7 +102,7 @@ function Folder({
                 > 
                     <div 
                         className="flex min-w-0 flex-1 cursor-pointer items-center gap-1.5" 
-                        onClick={() => setOpen(!open)} 
+                        onClick={() => openFile(node)} 
                     > 
                         <FileIcon 
                             size={16} 
@@ -244,6 +175,7 @@ function Folder({
                                     projectId={projectId} 
                                     tree={tree} 
                                     reloadTree={reloadTree} 
+                                    openFile={openFile}
                                     node={child} 
                                 /> 
                             ))} 
@@ -461,6 +393,7 @@ function Folder({
                                 projectId={projectId} 
                                 tree={tree} 
                                 reloadTree={reloadTree} 
+                                openFile={openFile}
                                 node={child} 
                             /> 
                         ))} 

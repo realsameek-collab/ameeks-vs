@@ -9,6 +9,8 @@ import ActivityBar from '../components/ActivityBar'
 import Explorer from '../components/Explorer'
 import { AnimatePresence, motion } from 'motion/react'
 import { Code2, Eye, Maximize2, Minimize2 } from 'lucide-react'
+import Preview from '../components/Preview'
+import Editor from '../components/Editor'
 
 function ProjectPage() {
 
@@ -18,6 +20,8 @@ function ProjectPage() {
   const [showpreview, setShowPreview] = useState(false)
   const [isPreviewFullScreen, setIsPreviewFullScreen] = useState(false)
   const [tree, setTree] = useState([])
+  const [openTabs,setOpenTabs] = useState([])
+  const [activeTab , setActiveTab] = useState(null)
   const { id } = useParams()
   const dispatch = useDispatch()
   const currentProject = useSelector((state) => state.project.currentProject)
@@ -45,6 +49,12 @@ function ProjectPage() {
     }
   }, [id, currentProject?._id, dispatch])
 
+  const openFile = (file) => {
+    setOpenTabs(prev => prev.some(tab => tab._id == file._id) ? prev : [...prev, file])
+    setActiveTab(file)
+    setShowPreview(false)
+  }
+
   return (
     <div className='relative flex h-screen flex-col overflow-hidden bg-[#0a0a0c]'>
       <div className='pointer-events-none absolute -top-40 left-1/3 h-96 w-96 rounded-full bg-sky-500/10 blur-[140px]' />
@@ -67,6 +77,8 @@ function ProjectPage() {
             <Explorer
               projectId={id}
               tree={tree}
+              openFile={openFile}
+
               reloadTree={loadTree}
 
             />
@@ -134,6 +146,16 @@ function ProjectPage() {
 
               </div>
             </AnimatePresence>
+          </div>
+          <div className='flex min-h-0 flex-1 overflow-hidden'>
+                {showpreview?(
+                  <Preview tree={tree}/>
+                ):<Editor
+                activeTab={activeTab}
+                openTabs={openTabs}
+                setOpenTabs={setOpenTabs}
+                setActiveTab={setActiveTab}
+                />}
           </div>
         </div>
       </div>

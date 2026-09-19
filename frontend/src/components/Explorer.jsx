@@ -7,7 +7,7 @@ import { FolderTree, RefreshCcw } from 'lucide-react'
 
 import Folder from './Folder'
 
-function Explorer({ projectId, tree, reloadTree }) {
+function Explorer({ projectId, tree, reloadTree , openFile }) {
 
   return (
 
@@ -67,6 +67,7 @@ function Explorer({ projectId, tree, reloadTree }) {
               projectId={projectId}
               tree={tree}
               reloadTree={reloadTree}
+              openFile={openFile}
             />
 
           ))
