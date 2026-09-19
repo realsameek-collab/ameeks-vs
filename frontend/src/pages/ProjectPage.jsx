@@ -22,6 +22,8 @@ function ProjectPage() {
   const [tree, setTree] = useState([])
   const [openTabs,setOpenTabs] = useState([])
   const [activeTab , setActiveTab] = useState(null)
+  // Unsaved editor content by file id, shared so the preview shows edits before they are saved
+  const [drafts, setDrafts] = useState({})
   const { id } = useParams()
   const dispatch = useDispatch()
   const currentProject = useSelector((state) => state.project.currentProject)
@@ -49,10 +51,23 @@ function ProjectPage() {
     }
   }, [id, currentProject?._id, dispatch])
 
+  // Leaving the preview (from any toggle) also leaves fullscreen
+  const setPreview = (value) => {
+    setShowPreview(value)
+    if (!value) setIsPreviewFullScreen(false)
+  }
+
+  useEffect(() => {
+    if (!isPreviewFullScreen) return
+    const onKey = (e) => e.key === 'Escape' && setIsPreviewFullScreen(false)
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [isPreviewFullScreen])
+
   const openFile = (file) => {
     setOpenTabs(prev => prev.some(tab => tab._id == file._id) ? prev : [...prev, file])
     setActiveTab(file)
-    setShowPreview(false)
+    setPreview(false)
   }
 
   return (
@@ -61,7 +76,7 @@ function ProjectPage() {
       <div className='pointer-events-none absolute -top-20 right-1/4 h-80 w-80 rounded-full bg-violet-500/10 blur-[140px]' />
       <TopBar
         showpreview={showpreview}
-        setShowPreview={setShowPreview}
+        setShowPreview={setPreview}
       />
       <div className='flex flex-1 overflow-hidden'>
         <ActivityBar
@@ -84,11 +99,14 @@ function ProjectPage() {
             />
           )}
         </AnimatePresence>
-        <div className='relative flex w-full min-w-0 flex-1 flex-col overflow-hidden border-x border-white/[0.05]'>
+        <div className={isPreviewFullScreen
+          ? 'fixed inset-0 z-50 flex flex-col overflow-hidden bg-[#0a0a0c]'
+          : 'relative flex w-full min-w-0 flex-1 flex-col overflow-hidden border-x border-white/[0.05]'}>
           <div className='pointer-events-none absolute right-2 top-2 z-40 flex items-center gap-1.5 sm:right-4 sm:top-3 sm:gap-2'>
             <AnimatePresence>
               {showpreview && (
                 <motion.button
+                  key="fullscreen"
                   initial={{ opacity: 0, scale: 0.9 }}
                   animate={{ opacity: 1, scale: 1 }}
                   exit={{ opacity: 0, scale: 0.9 }}
@@ -101,14 +119,12 @@ function ProjectPage() {
                 </motion.button>
               )}
               <div
+                key="view-toggle"
                 className="pointer-events-auto flex items-center gap-0.5 rounded-lg border border-white/10 bg-[#111113]/95 p-1 
                 shadow-lg shadow-black/40 backdrop-blur"
               >
                 <button
-                  onClick={() => {
-                    setShowPreview(false);
-                    setIsPreviewFullScreen(false);
-                  }}
+                  onClick={() => setPreview(false)}
                   className={`relative flex items-center gap-1.5 rounded-md px-2 py-1 text-[11px] font-semibold transition-colors 
                     sm:px-3 sm:py-1.5 sm:text-xs ${!showpreview ? "text-white" : "text-zinc-500 hover:text-zinc-300"}`}
                 >
@@ -127,7 +143,7 @@ function ProjectPage() {
 
 
                 </button>
-                <button onClick={() => setShowPreview(true)}
+                <button onClick={() => setPreview(true)}
                   className={`relative flex items-center gap-1.5 rounded-md px-2 py-1 text-[11px] font-semibold transition-colors 
                     sm:px-3 sm:py-1.5 sm:text-xs ${showpreview ? "text-white" : "text-zinc-500 hover:text-zinc-300"}`}
                 >
@@ -148,16 +164,20 @@ function ProjectPage() {
             </AnimatePresence>
           </div>
           <div className='flex min-h-0 flex-1 overflow-hidden'>
-                {showpreview?(
-                  <Preview tree={tree}/>
-                ):<Editor
-                tree={tree}
-                activeTab={activeTab}
-                openTabs={openTabs}
-                setOpenTabs={setOpenTabs}
-                setActiveTab={setActiveTab}
-                onSaved={loadTree}
-                />}
+                {showpreview && <Preview tree={tree} drafts={drafts} activeTab={activeTab} />}
+                {/* Kept mounted while previewing so unsaved edits and undo history survive */}
+                <div className={showpreview ? 'hidden' : 'flex min-w-0 flex-1'}>
+                  <Editor
+                    tree={tree}
+                    activeTab={activeTab}
+                    openTabs={openTabs}
+                    setOpenTabs={setOpenTabs}
+                    setActiveTab={setActiveTab}
+                    drafts={drafts}
+                    setDrafts={setDrafts}
+                    onSaved={loadTree}
+                  />
+                </div>
           </div>
         </div>
       </div>

@@ -26,6 +26,8 @@ function Editor({
     openTabs,
     setOpenTabs,
     setActiveTab,
+    drafts,
+    setDrafts,
     onSaved
 }) {
     const monaco = useMonaco()
@@ -37,7 +39,6 @@ function Editor({
     const [edges, setEdges] = useState({ left: false, right: false })
     const [draggingId, setDraggingId] = useState(null)
     const [menu, setMenu] = useState(null)
-    const [drafts, setDrafts] = useState({})
     const [saveState, setSaveState] = useState('idle') // idle | saving | saved | error
     const [cursor, setCursor] = useState({ line: 1, column: 1, selected: 0 })
     const saveRef = useRef(null)

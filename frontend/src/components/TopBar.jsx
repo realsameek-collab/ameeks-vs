@@ -30,7 +30,7 @@ function TopBar({showpreview, setShowPreview}) {
                 <motion.button
                     whileHover={{ scale: 1.05 }}
                     whileTap={{ scale: 0.95 }}
-                    onClick={() => setShowPreview((v) => !v)}
+                    onClick={() => setShowPreview(!showpreview)}
                     title={showpreview ? "Show Editor" : "Show Preview"}
                     className={`relative flex items-center justify-center rounded-lg p-2 transition-colors ${showpreview ? "text-sky-400" : "text-zinc-400 hover:text-zinc-200"
                         }`}
