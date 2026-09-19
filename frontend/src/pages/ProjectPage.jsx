@@ -151,10 +151,12 @@ function ProjectPage() {
                 {showpreview?(
                   <Preview tree={tree}/>
                 ):<Editor
+                tree={tree}
                 activeTab={activeTab}
                 openTabs={openTabs}
                 setOpenTabs={setOpenTabs}
                 setActiveTab={setActiveTab}
+                onSaved={loadTree}
                 />}
           </div>
         </div>
