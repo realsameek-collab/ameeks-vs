@@ -12,6 +12,7 @@ import { Code2, Eye, Maximize2, Minimize2 } from 'lucide-react'
 import Preview from '../components/Preview'
 import Editor from '../components/Editor'
 import BottomPanel from '../components/BottomPanel'
+import AiChat from '../components/AiChat'
 
 function ProjectPage() {
 
@@ -23,6 +24,7 @@ function ProjectPage() {
   const [openTabs,setOpenTabs] = useState([])
   const [showBottomPannel,setshowBottomPannel] = useState(false)
   const [activeTab , setActiveTab] = useState(null)
+  
   // Unsaved editor content by file id, shared so the preview shows edits before they are saved
   const [drafts, setDrafts] = useState({})
   const { id } = useParams()
@@ -194,6 +196,16 @@ function ProjectPage() {
             )}
           </AnimatePresence>
         </div>
+        {/* Secondary sidebar: AmeekAi sits opposite the Explorer */}
+        <AnimatePresence initial={false}>
+          {showChat && (
+            <AiChat
+              key={id}
+              projectId={id}
+              onClose={() => setShowChat(false)}
+            />
+          )}
+        </AnimatePresence>
       </div>
     </div>
   )
