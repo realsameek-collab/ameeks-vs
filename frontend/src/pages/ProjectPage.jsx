@@ -11,16 +11,17 @@ import { AnimatePresence, motion } from 'motion/react'
 import { Code2, Eye, Maximize2, Minimize2 } from 'lucide-react'
 import Preview from '../components/Preview'
 import Editor from '../components/Editor'
+import BottomPanel from '../components/BottomPanel'
 
 function ProjectPage() {
 
   const [showExplorer, setShowExplorer] = useState(false)
   const [showChat, setShowChat] = useState(false)
-  const [showTerminal, setShowTerminal] = useState(false)
   const [showpreview, setShowPreview] = useState(false)
   const [isPreviewFullScreen, setIsPreviewFullScreen] = useState(false)
   const [tree, setTree] = useState([])
   const [openTabs,setOpenTabs] = useState([])
+  const [showBottomPannel,setshowBottomPannel] = useState(false)
   const [activeTab , setActiveTab] = useState(null)
   // Unsaved editor content by file id, shared so the preview shows edits before they are saved
   const [drafts, setDrafts] = useState({})
@@ -84,8 +85,8 @@ function ProjectPage() {
           setShowExplorer={setShowExplorer}
           showChat={showChat}
           setShowChat={setShowChat}
-          showTerminal={showTerminal}
-          setShowTerminal={setShowTerminal}
+          showTerminal={showBottomPannel}
+          setShowTerminal={setshowBottomPannel}
         />
         <AnimatePresence initial={false}>
           {showExplorer && (
@@ -179,6 +180,19 @@ function ProjectPage() {
                   />
                 </div>
           </div>
+          <AnimatePresence>
+            {showBottomPannel && !isPreviewFullScreen && (
+              <div className='flex max-h-[45vh] shrink-0 flex-col overflow-hidden md:max-h-none'>
+                  <BottomPanel
+                  projectId={id}
+                  tree={tree}
+                  reloadTree={loadTree}
+                  openFile={openFile}
+                  onClose={() => setshowBottomPannel(false)}
+                  />
+              </div>
+            )}
+          </AnimatePresence>
         </div>
       </div>
     </div>

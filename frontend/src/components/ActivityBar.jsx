@@ -84,15 +84,13 @@ function ActivityBar({showChat, showExplorer, showTerminal, setShowChat, setShow
                 active={showChat}
                 onClick={() => setShowChat((v) => !v)}
             />
-            <div className='mt-auto flex flex-col items-center gap-2'>
-                <div className='mb-1 h-px w-6 bg-white/[0.06]'/>
-                <ActivityIcon
+
+            <ActivityIcon
                 icon={SquareTerminal}
                 label={"Terminal"}
                 active={showTerminal}
                 onClick={() => setShowTerminal((v) => !v)}
             />
-            </div>
         </div>
     )
 }
