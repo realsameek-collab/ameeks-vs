@@ -1,5 +1,6 @@
 import { tool } from "@langchain/core/tools"
-import { createFile, createFolder, deleteFile, getFile, getTree } from "../utils/fetchFileAPIs.js"
+import { z } from "zod"
+import { createFile, createFolder, deleteFile, getFile, getTree, updateFile } from "../utils/fetchFileAPIs.js"
 
 
 
@@ -24,13 +25,13 @@ export const fileTools = ({ projectId, userId }) => {
             const result = await getTree({ projectId, userId })
             const tree = compactTree(result)
             return JSON.stringify({
-                  success:true,
+                  success: true,
                   tree
             })
       },
-        {
-            name:"get_tree",
-                description: `
+            {
+                  name: "get_tree",
+                  description: `
 Get the complete project file and folder tree.
 
 IMPORTANT:
@@ -51,48 +52,47 @@ type
 language
 extension
 children
-`
-,
-schema:z.object({})
+`,
+                  schema: z.object({})
 
-        })
+            })
 
-        const getFileTool = tool(async (fileId) => {
+      const getFileTool = tool(async (fileId) => {
             console.log("ai tool get-file")
-            const file = await getFile({userId , id:fileId})
-               if(file && file.type != "file"){
-                      console.log("get file blocked , id is folder")
-                      return JSON.stringify({
-                        success:false,
-                        error:"The provided Id belongs to a folder , not a file",
-                        instructions:"Do not call get_file for folder . Use the folder ID as parentId"
-                        
-                        
-                      })
-               }
-               if(!file){
+            const file = await getFile({ userId, id: fileId })
+            if (file && file.type != "file") {
+                  console.log("get file blocked , id is folder")
+                  return JSON.stringify({
+                        success: false,
+                        error: "The provided Id belongs to a folder , not a file",
+                        instructions: "Do not call get_file for folder . Use the folder ID as parentId"
+
+
+                  })
+            }
+            if (!file) {
                   console.log("file not found")
-                   return JSON.stringify({
-                        success:false,
-                        error:"File not found",
-                   })
-               }
+                  return JSON.stringify({
+                        success: false,
+                        error: "File not found",
+                  })
+            }
             return JSON.stringify({
-                  success:true,
-                  file:{
-                        _id:file._id,
-                        name:file.name,
-                        type:file.type,
-                        content:file.content || "",
-                        language:file.language,
-                        extension:file.extension,
-                        parentId:file.parentId
+                  success: true,
+                  file: {
+                        _id: file._id,
+                        name: file.name,
+                        type: file.type,
+                        content: file.content || "",
+                        language: file.language,
+                        extension: file.extension,
+                        parentId: file.parentId
                   }
             })
       },
-        {
-            name:"get_File",
-                    description: `
+            {
+                  name: "get_File",
+                  description: `
 Read an EXISTING FILE before modifying it.
 
 STRICT RULES:
@@ -107,32 +107,32 @@ STRICT RULES:
 The response contains the complete file content.
 `
 
-,
-schema:z.object({
-      fileId:z.string()
+                  ,
+                  schema: z.object({
+                        fileId: z.string()
 
-})
+                  })
 
-        })
+            })
 
-        const createFolderTool = tool(async (name,parentId) => {
+      const createFolderTool = tool(async (name, parentId) => {
             console.log("ai tool create-folder ")
-            const folder = await createFolder({projectId , userId , name ,parentId})
-          
+            const folder = await createFolder({ projectId, userId, name, parentId })
+
             return JSON.stringify({
-                  success:true,
-                  operation:"folder-created",
-                  folder:{
-                        _id:folder._id,
-                        name:folder.name,
-                        type:folder.type,
-                        parentId:folder.parentId
+                  success: true,
+                  operation: "folder-created",
+                  folder: {
+                        _id: folder._id,
+                        name: folder.name,
+                        type: folder.type,
+                        parentId: folder.parentId
                   }
             })
       },
-        {
-            name:"create_Folder",
-                        description: `
+            {
+                  name: "create_Folder",
+                  description: `
 Create a new folder.
 
 RULES:
@@ -146,36 +146,36 @@ RULES:
 `
 
 
-,
-schema:z.object({
-      name:z.string(),
-      parentId:z.string().nullable()
-      
-})
+                  ,
+                  schema: z.object({
+                        name: z.string(),
+                        parentId: z.string().nullable()
 
-        })
+                  })
 
-        const createFileTool = tool(async (name,parentId, content , language) => {
+            })
+
+      const createFileTool = tool(async (name, parentId, content, language) => {
             console.log("ai tool create-file ")
-            const file = await createFile({projectId , userId , name , parentId , content , language: language || "plainText"})
-          
+            const file = await createFile({ projectId, userId, name, parentId, content, language: language || "plainText" })
+
             return JSON.stringify({
-                  success:true,
-                  operation:"file-created",
-                  file:{
-                        _id:file._id,
-                        name:file.name,
-                        type:file.type,
-                        parentId:file.parentId,
-                        language:file.language,
-                        content:file.content
+                  success: true,
+                  operation: "file-created",
+                  file: {
+                        _id: file._id,
+                        name: file.name,
+                        type: file.type,
+                        parentId: file.parentId,
+                        language: file.language,
+                        content: file.content
 
                   }
             })
       },
-        {
-            name:"create_File",
-                            description: `
+            {
+                  name: "create_File",
+                  description: `
 Create a NEW FILE.
 
 RULES:
@@ -194,39 +194,38 @@ For a React/Vite project, create ALL required files.
 `
 
 
+                  ,
+                  schema: z.object({
+                        name: z.string(),
+                        parentId: z.string(),
+                        language: z.string().optional(),
+                        content: z.string()
 
-,
-schema:z.object({
-      name:z.string(),
-      parentId:z.string(),
-      language:z.string().optional(),
-      content:z.string()
-      
-})
+                  })
 
-        })
+            })
 
-          const updateFileTool = tool(async (userId, name , content , id) => {
+      const updateFileTool = tool(async (userId, name, content, fileId) => {
             console.log("ai tool update-file ")
             const file = await updateFile(userId, name, content, fileId)
-          
+
             return JSON.stringify({
-                  success:true,
-                  operation:"file-updated",
-                  file:{
-                        _id:file._id,
-                        name:file.name,
-                        type:file.type,
-                        parentId:file.parentId,
-                        language:file.language,
-                        content:file.content
+                  success: true,
+                  operation: "file-updated",
+                  file: {
+                        _id: file._id,
+                        name: file.name,
+                        type: file.type,
+                        parentId: file.parentId,
+                        language: file.language,
+                        content: file.content
 
                   }
             })
       },
-        {
-            name:"update_File",
-                               description: `
+            {
+                  name: "update_File",
+                  description: `
 Update an EXISTING FILE.
 
 RULES:
@@ -243,32 +242,32 @@ RULES:
 
 
 
-,
-schema:z.object({
-      name:z.string(),
-      content:z.string(),
-      fileId:z.string()
-      
-})
+                  ,
+                  schema: z.object({
+                        name: z.string(),
+                        content: z.string(),
+                        fileId: z.string()
 
-        })
+                  })
+
+            })
 
 
-         const deleteFileTool = tool(async (fileId) => {
+      const deleteFileTool = tool(async (fileId) => {
             console.log("ai tool delete-file ")
-            const file = await deleteFile(userId,id:fileId)
-          
+            const file = await deleteFile(userId, fileId)
+
             return JSON.stringify({
-                  success:true,
-                  operation:"file-deleted",
-                  file:{
-                        _id:file._id,
+                  success: true,
+                  operation: "file-deleted",
+                  file: {
+                        _id: file._id,
                   }
             })
       },
-        {
-            name:"delete_File",
-                                   description: `
+            {
+                  name: "delete_File",
+                  description: `
 Delete an EXISTING FILE from the project.
 
 STRICT RULES:
@@ -287,21 +286,21 @@ STRICT RULES:
 
 
 
-,
-schema:z.object({
-      
-      fileId:z.string()
-      
-})
+                  ,
+                  schema: z.object({
 
-        })
-    return [
-      getTreeTool,
-      getFileTool,
-      createFolderTool,
-      createFileTool,
-      updateFileTool,
-      deleteFileTool
-    ]
+                        fileId: z.string()
+
+                  })
+
+            })
+      return [
+            getTreeTool,
+            getFileTool,
+            createFolderTool,
+            createFileTool,
+            updateFileTool,
+            deleteFileTool
+      ]
 
 }
