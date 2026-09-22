@@ -1,18 +1,36 @@
 import React, { useState } from 'react'
 import { motion } from "motion/react"
-import { X } from 'lucide-react'
+import { FolderOpen, X } from 'lucide-react'
 import { createProject } from '../features/project'
 import { createRootFolder } from '../features/file'
 import { useDispatch } from 'react-redux'
 import { addNewProject } from '../redux/projectSlice'
+import * as browserFs from '../utils/browserFs'
 function CreateProjectModal({ onClose }) {
     const [name,setName] = useState("")
     const [description,setDescription] = useState("")
+    const [folder,setFolder] = useState(null)
     const [loading,setLodaing] = useState(false)
     const [error,setError] = useState("")
     const dispatch = useDispatch()
 
+    const chooseFolder = async () => {
+        try {
+            const handle = await browserFs.pickFolder()
+            if(handle){
+                setFolder({ name: handle.name, handle })
+                setError("")
+            }
+        } catch (error) {
+            setError(error?.message || "Could not open that folder")
+        }
+    }
+
     const handlecreateProject = async () => {
+        if(browserFs.supported && !folder){
+            setError("Choose a folder for the project")
+            return
+        }
         if(!name.trim()){
             setError("Project name is required")
             return
@@ -20,7 +38,11 @@ function CreateProjectModal({ onClose }) {
         setError("")
         setLodaing(true)
         try {
-            const data = await createProject({name,description})
+            const data = await createProject({
+                name,
+                description,
+                folderName: folder?.name,
+            })
             if(!data){
                 setError("Could not create the project. Please try again.")
                 return
@@ -28,6 +50,14 @@ function CreateProjectModal({ onClose }) {
             // The project exists from here on, so keep it in the store either way;
             // retrying the whole modal would create a duplicate.
             dispatch(addNewProject(data))
+
+            // A folder project's files are on the device, so it needs no root folder in the files service
+            if(folder){
+                // Remembered by this browser, so the project reopens the same folder later
+                await browserFs.linkFolder(data._id, folder.handle)
+                onClose()
+                return
+            }
 
             const root = await createRootFolder({projectId:data._id,projectName:data.name})
             if(!root){
@@ -98,6 +128,35 @@ function CreateProjectModal({ onClose }) {
                     </button>
                 </div>
                 <div className='space-y-6 px-7 py-6'>
+                    {!browserFs.supported && (
+                        <p className='rounded-xl border border-sky-500/20 bg-sky-500/[0.06] px-4 py-3 text-[13px] text-sky-700 dark:text-sky-300'>
+                            This browser can't open folders on your device. Use Chrome or Edge to link a folder;
+                            projects created here are saved in the cloud.
+                        </p>
+                    )}
+                    {browserFs.supported && (
+                        <div>
+                            <div className='mb-2 block text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400'>
+                                Folder
+                            </div>
+                            <button
+                                type="button"
+                                onClick={chooseFolder}
+                                title={folder?.name}
+                                className="flex w-full items-center gap-3 rounded-xl border border-black/[0.08] bg-black/[0.02] px-4 py-3 text-left 
+                                outline-none transition-all hover:bg-black/[0.04] focus:border-sky-400/60 focus:ring-4 focus:ring-sky-400/15 
+                                dark:border-white/[0.09] dark:bg-white/[0.04] dark:hover:bg-white/[0.06] dark:focus:ring-sky-400/10"
+                            >
+                                <FolderOpen size={18} className='shrink-0 text-sky-500 dark:text-sky-400' />
+                                <span className={`min-w-0 flex-1 truncate text-[15px] ${folder ? 'text-zinc-900 dark:text-white' : 'text-zinc-400 dark:text-zinc-500'}`}>
+                                    {folder ? folder.name : "Choose a folder on this device"}
+                                </span>
+                                <span className='shrink-0 text-xs font-medium text-sky-600 dark:text-sky-400'>
+                                    {folder ? "Change" : "Browse"}
+                                </span>
+                            </button>
+                        </div>
+                    )}
                     <div>
                         <div className='mb-2 block text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400'>
                             Project Name

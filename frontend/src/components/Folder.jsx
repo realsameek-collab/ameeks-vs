@@ -18,11 +18,13 @@ function Folder({
     tree, 
     reloadTree, 
     openFile,
-    node 
+    node,
+    defaultOpen = false,
+    createRequest
 }) { 
     const [folderName, setFolderName] = useState("") 
     const [fileName, setFileName] = useState("") 
-    const [open, setOpen] = useState(false) 
+    const [open, setOpen] = useState(defaultOpen) 
     const [menu, setMenu] = useState(null) 
     const FolderColor = getFolderColor(node?.name) 
     const [creatingFolderIn, setCreatingFolderIn] = useState(null) 
@@ -71,6 +73,17 @@ function Folder({
         setCreatingFolderIn(null) 
     } 
  
+    // The Explorer header's New File / New Folder buttons act on the root folder.
+    // Each click is a new request object, handled once while rendering.
+    const [handledRequest, setHandledRequest] = useState(null)
+    if (createRequest && createRequest !== handledRequest) {
+        setHandledRequest(createRequest)
+        setCreationError("")
+        setCreatingFileIn(createRequest.kind === 'file' ? node?._id : null)
+        setCreatingFolderIn(createRequest.kind === 'folder' ? node?._id : null)
+        setOpen(true)
+    }
+
     const handleDelete = async (folder) => { 
         if (!folder?._id) return 
         await deleteFile(folder._id) 

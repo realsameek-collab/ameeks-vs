@@ -2,11 +2,12 @@ import { AnimatePresence, motion, Reorder } from 'motion/react'
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useMonaco } from '@monaco-editor/react'
-import { AlertCircle, Check, ChevronRight, FileCode2, LoaderCircle, Save, X } from 'lucide-react'
+import { AlertCircle, Check, ChevronRight, FileCode2, LoaderCircle, Redo2, Save, Sparkles, Undo2, X } from 'lucide-react'
 import { getFileIcon } from '../utils/customizeIcon'
 import { getLanguage } from '../utils/language'
 import { updateFile } from '../features/file'
-import CodeEditor from './CodeEditor'
+import CodeEditor, { DiffView } from './CodeEditor'
+import { countLineChanges } from '../utils/lineDiff'
 
 // Each open file gets its own Monaco model, so undo history survives tab switches
 const modelPath = (tab) => `file:///${tab._id}/${tab.name}`
@@ -20,6 +21,66 @@ const buildPathMap = (nodes, parents = [], map = new Map()) => {
     return map
 }
 
+function ChangeButton({ icon: Icon, label, onClick, disabled, primary }) {
+    return (
+        <button
+            type='button'
+            onClick={onClick}
+            disabled={disabled}
+            className={`flex h-6 items-center gap-1 rounded-md px-2 text-[11px] font-medium transition-colors disabled:opacity-40
+                ${primary ? 'bg-emerald-500/15 text-emerald-300 ring-1 ring-inset ring-emerald-500/30 hover:bg-emerald-500/25'
+                    : 'text-zinc-300 hover:bg-white/[0.06]'}`}
+        >
+            <Icon size={12} />
+            {label}
+        </button>
+    )
+}
+
+// Review strip over a file AmeekAi changed: undo or keep, and redo after an undo
+function AiChangeBar({ change, onKeep, onUndo, onRedo }) {
+    const [busy, setBusy] = useState(false)
+    const { added, removed } = useMemo(() => countLineChanges(change.before, change.after), [change.before, change.after])
+    const act = async (action) => {
+        setBusy(true)
+        try {
+            await action(change.path)
+        } finally {
+            setBusy(false)
+        }
+    }
+    const undone = change.state === 'undone'
+
+    return (
+        <div className='flex h-9 shrink-0 items-center justify-between gap-2 border-b border-white/[0.05] bg-violet-500/[0.06] px-3'>
+            <div className='flex min-w-0 items-center gap-2 text-[11.5px]'>
+                <Sparkles size={13} className='shrink-0 text-violet-300' />
+                <span className='truncate text-zinc-300'>
+                    {undone ? 'You undid AmeekAi\'s changes to this file' : change.before === null ? 'AmeekAi created this file' : 'AmeekAi changed this file'}
+                </span>
+                {!undone && (
+                    <span className='shrink-0 font-mono text-[11px]'>
+                        <span className='text-emerald-400'>+{added}</span> <span className='text-rose-400'>−{removed}</span>
+                    </span>
+                )}
+            </div>
+            <div className='flex shrink-0 items-center gap-1'>
+                {undone ? (
+                    <>
+                        <ChangeButton icon={Redo2} label='Redo' onClick={() => act(onRedo)} disabled={busy} />
+                        <ChangeButton icon={X} label='Dismiss' onClick={() => act(onKeep)} disabled={busy} />
+                    </>
+                ) : (
+                    <>
+                        <ChangeButton icon={Undo2} label='Undo' onClick={() => act(onUndo)} disabled={busy} />
+                        <ChangeButton icon={Check} label='Keep' onClick={() => act(onKeep)} disabled={busy} primary />
+                    </>
+                )}
+            </div>
+        </div>
+    )
+}
+
 function Editor({
     tree,
     activeTab,
@@ -28,7 +89,11 @@ function Editor({
     setActiveTab,
     drafts,
     setDrafts,
-    onSaved
+    onSaved,
+    aiChange,
+    onKeepChange,
+    onUndoChange,
+    onRedoChange
 }) {
     const monaco = useMonaco()
     const scrollRef = useRef(null)
@@ -53,6 +118,31 @@ function Editor({
     const activeDirty = !!current && isDirty(current)
 
     const pathMap = useMemo(() => buildPathMap(tree), [tree])
+
+    // Files changed outside the editor (AmeekAi, the terminal, another app) update their
+    // open tabs, unless the tab has unsaved edits. Applied as an edit, so Ctrl+Z undoes it.
+    useEffect(() => {
+        const contents = new Map()
+        const collect = (nodes) => nodes?.forEach(node => {
+            if (node.type === 'file') contents.set(node._id, node.content ?? '')
+            else collect(node.children)
+        })
+        collect(tree)
+        const changed = openTabs.filter(tab => {
+            const next = contents.get(tab._id)
+            const saved = tab.content ?? ''
+            const unsaved = drafts[tab._id] !== undefined && drafts[tab._id] !== saved
+            return next !== undefined && next !== saved && !unsaved
+        })
+        if (!changed.length) return
+        for (const tab of changed) {
+            const model = monaco?.editor.getModel(monaco.Uri.parse(modelPath(tab)))
+            const text = contents.get(tab._id)
+            if (model && model.getValue() !== text) model.pushEditOperations([], [{ range: model.getFullModelRange(), text }], () => null)
+        }
+        const ids = new Set(changed.map(tab => tab._id))
+        setOpenTabs(tabs => tabs.map(tab => ids.has(tab._id) ? { ...tab, content: contents.get(tab._id) } : tab))
+    }, [tree, openTabs, drafts, monaco, setOpenTabs])
     const breadcrumbs = (pathMap.get(activeId)?.path || current?.name || '').split('/')
 
     // Names opened more than once get their parent folder shown, like VS Code
@@ -350,14 +440,28 @@ function Editor({
                         </button>
                     </div>
 
+                    {aiChange && (
+                        <AiChangeBar change={aiChange} onKeep={onKeepChange} onUndo={onUndoChange} onRedo={onRedoChange} />
+                    )}
+
                     <div className='min-h-0 flex-1'>
-                        <CodeEditor
-                            path={modelPath(current)}
-                            language={language.id}
-                            defaultValue={current.content ?? ''}
-                            onChange={(value) => setDrafts(d => ({ ...d, [current._id]: value }))}
-                            onCursorChange={setCursor}
-                        />
+                        {aiChange?.state === 'pending' ? (
+                            // Added lines green, removed lines red, until the change is kept or undone
+                            <DiffView
+                                path={aiChange.path}
+                                language={language.id}
+                                original={aiChange.before ?? ''}
+                                modified={aiChange.after ?? ''}
+                            />
+                        ) : (
+                            <CodeEditor
+                                path={modelPath(current)}
+                                language={language.id}
+                                defaultValue={current.content ?? ''}
+                                onChange={(value) => setDrafts(d => ({ ...d, [current._id]: value }))}
+                                onCursorChange={setCursor}
+                            />
+                        )}
                     </div>
 
                     <div className='flex h-6 shrink-0 items-center justify-between gap-4 border-t border-white/[0.05] bg-[#0d0d10] px-3 text-[11px] text-zinc-500'>

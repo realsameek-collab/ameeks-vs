@@ -13,6 +13,11 @@ const projectSchema = new mongoose.Schema({
       description:{
         type:String
       },
+      // Name of the folder on the user's device, set when it was chosen in the browser.
+      // Browsers never reveal the full path; the folder itself is remembered by that browser.
+      folderName:{
+        type:String
+      },
       starred:{
         type:Boolean,
         default:false

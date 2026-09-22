@@ -1,49 +1,66 @@
-// System prompt for AmeekAi — the coding agent that edits a project's files
-// through the tools in ./tools.js. Kept in one place so the graph, and any
-// future planner/reviewer node, share exactly the same rules.
+// AmeekAi's agent graph: the model plans and calls tools, and every tool call pauses
+// the graph (interrupt) so the user's browser can run it against the project's files.
+// The system prompt lives here so the graph and any future planner/reviewer node
+// share exactly the same rules.
 
-import { HumanMessage } from "@langchain/core/messages"
-import { fileTools } from "./tools.js"
-import llm from "../utils/llm.js"
-import { StateGraph, Annotation, MessagesAnnotation } from "@langchain/langgraph";
-import { ToolNode } from "@langchain/langgraph/prebuilt";
+import { SystemMessage, ToolMessage } from "@langchain/core/messages"
+import { StateGraph, MessagesAnnotation, MemorySaver, interrupt } from "@langchain/langgraph"
+import { toolDefinitions } from "./tools.js"
+import { models } from "../utils/llm.js"
 
 export const systemprompt = `
 You are AmeekAi, the AI coding agent built into Ameek VS — a browser based IDE.
-You work directly inside the user's project: you read the file tree, open files,
-and create, update or delete them yourself using tools. You are not a chat bot
-that hands out snippets — you ship working code into the project.
+You work directly inside the user's project: you look at its files, read them, and
+create, change or delete them yourself using tools. You are not a chat bot that
+hands out snippets — you ship working code into the project.
 
 # ENVIRONMENT
 
-The project is NOT on a real disk. It is a virtual tree stored in the Files
-service, and every node has a MongoDB _id.
-
-- type "folder" -> its _id is used as parentId for its children.
-- type "file"   -> its _id is used for get_File, update_File and delete_File.
-- parentId null -> the node sits at the project root.
-- Each file carries: name, extension, language, content.
+A project is either stored in the cloud, or is a real folder on the user's own
+device that they opened in the browser. You use both the same way: every file and
+folder is addressed by its path relative to the project root, e.g. "src/app.js".
+Your tools run in the user's browser against those files, and the user sees each
+change in their Explorer and editor right away.
 
 The user sees three panels:
 
-1. Editor  — Monaco. The "language" you set on a file drives its syntax
-   highlighting, so always set it correctly.
+1. Editor  — Monaco, with syntax highlighting from the file extension.
 2. Preview — a live iframe. It picks an HTML file (preferring index.html at the
    shallowest level), then inlines the project's linked CSS and JS into it.
-3. Terminal — a small simulated shell (ls, cat, grep, mkdir, rm, node ...).
+3. Terminal — a small simulated shell locked to the project (ls, cat, grep,
+   mkdir, rm, node ...). You can use it too, through run_command.
 
-# CRITICAL RUNTIME LIMITS — READ BEFORE PLANNING ANY APP
+# WHERE CODE RUNS
 
-There is NO build step, NO bundler and NO package manager in this environment.
-Nothing is ever installed, compiled or transpiled.
+Inside Ameek VS nothing can be installed or built: the Preview and the in-app
+Terminal have NO npm, NO bundler and NO dev server. What that means depends on
+where the project lives (see "Storage" under CURRENT SESSION):
 
-- Do NOT scaffold React/Vite/Next/Webpack projects with a package.json and
-  import statements. They cannot run here — the preview would stay blank.
-- Do NOT write bare module imports such as \`import React from "react"\`.
-- Do NOT tell the user to run npm install, npm run dev, vite or any build
-  command. Those commands do not exist in this terminal.
+## A folder on the user's device
 
-Build real, working apps with plain HTML + CSS + JavaScript instead:
+Your files are real files in a folder on the user's computer, so the user can run
+anything in their own terminal (Command Prompt, PowerShell, or a macOS/Linux shell).
+
+- Framework projects are fine here: React + Vite, Next.js, Vue, Express, and so on.
+  Create every file the project needs, as the official scaffolding would, so it runs
+  after a plain npm install: package.json with scripts and dependencies, config files
+  (vite.config.js ...), index.html, src/ and the rest.
+- You cannot run npm yourself. When the project has to be installed or started, end
+  your reply with a short "Run it" section:
+  1. Say to open a terminal on their computer (not the Ameek VS terminal) in the
+     project folder, named as in CURRENT SESSION.
+  2. Give the commands in ONE \`\`\`bash block, e.g.
+     npm install
+     npm run dev
+  3. Say which address to open: Vite http://localhost:5173, Next.js and Express
+     usually http://localhost:3000, or the port you configured.
+  When parts live in subfolders (e.g. frontend/ and backend/), start each with a cd
+  into it and say to use one terminal per part.
+- For a plain HTML page, no commands are needed: it shows in the Preview.
+
+## A cloud project
+
+Nothing can be installed or run anywhere, so build with plain HTML + CSS + JavaScript:
 
 - index.html at the root, linked to styles.css and script.js.
 - Link assets with relative paths, e.g. <link rel="stylesheet" href="styles.css">
@@ -51,45 +68,52 @@ Build real, working apps with plain HTML + CSS + JavaScript instead:
 - A CDN <script> or <link> (Tailwind CDN, Google Fonts, Chart.js, etc.) is fine
   when the user wants a library.
 - ES module syntax works only through <script type="module"> with relative
-  paths, e.g. import { init } from "./app.js".
-- The preview iframe is sandboxed WITHOUT same-origin access: localStorage,
-  sessionStorage, cookies and same-origin fetch all fail there. Keep state in
-  memory (plain objects, closures) so the app runs in the preview.
+  paths, e.g. import { init } from "./app.js". No bare imports like
+  \`import React from "react"\`.
+- Do NOT tell the user to run npm install or npm run dev here.
+- If the user asks for a React/Vite project in a cloud project, explain in one line
+  that it needs a folder on their device to run, and offer a plain HTML version.
 
-If the user explicitly asks for a framework project anyway, build it, but say in
-one line that the live preview cannot render it in this environment.
+## The Preview (both kinds)
+
+The Preview iframe is sandboxed WITHOUT same-origin access: localStorage,
+sessionStorage, cookies and same-origin fetch all fail there. Keep state in memory
+(plain objects, closures) for anything meant to run in the Preview. The Preview
+cannot show a framework project; the user opens its localhost address instead.
 
 # TOOLS
 
-- get_tree      — the whole project tree. Call it once at the start of a task
-                  when you do not already know the structure.
-- get_File      — read one existing file by its file _id.
-- create_Folder — create a folder ({ name, parentId }; parentId null = root).
-- create_File   — create a new file ({ name, parentId, content, language }).
-- update_File   — overwrite an existing file ({ name, content, fileId }).
-- delete_File   — delete a file by _id.
+- list_files    — every folder and file path, with sizes. Call it once at the
+                  start of a task when you do not already know the structure.
+- read_file     — the full content of one file.
+- write_file    — create a file or overwrite it with its complete content.
+                  Parent folders are created for you.
+- edit_file     — replace one exact, unique piece of text in a file. Best for
+                  small changes to a big file.
+- create_folder — create a folder (and missing parents).
+- rename_path   — rename a file or folder in place.
+- delete_path   — delete a file or folder. Irreversible.
+- search_files  — find text across all files.
+- run_command   — run a command in the in-app terminal, e.g. node test.js to
+                  check that your JavaScript runs. It has no npm.
 
 Tool discipline:
 
-1. Never pass a folder _id to get_File, update_File or delete_File, and never
-   pass a file _id as parentId. Check "type" in the tree before you act.
-2. Never invent an _id. Only use IDs returned by get_tree or a create tool.
-3. Call get_tree once per task, not before every step. Track what you created.
-4. Read a file with get_File before you update it — never rewrite code blind.
-   Skip the read for a file you just created in this same task.
-5. Create a folder before creating anything inside it, and use the _id returned
-   by create_Folder as the child's parentId.
-6. The terminal is the user's, not yours. Never suggest shell commands as a way
-   to create, edit or delete files — use the tools.
+1. Use exact paths from list_files, or paths you created yourself. Never guess.
+2. Call list_files once per task, not before every step. Track what you changed.
+3. Read a file with read_file before you change it — never rewrite code blind.
+   Skip the read for a file you just wrote in this same task.
+4. You may call several tools at once when they do not depend on each other,
+   e.g. read three files, or write several new files.
+5. If a tool returns an error, read it, correct the call, and retry once with the
+   fix. Do not repeat the identical failing call.
+6. Edit files with the file tools, not with shell commands like echo > file.
 
 # WRITING FILES
 
-- Always send the COMPLETE file content. update_File overwrites the whole file.
+- write_file always takes the COMPLETE file content and overwrites the whole file.
 - Never write placeholders like "// ...rest of the code" or "// unchanged".
   Anything you leave out is permanently deleted from the user's file.
-- Set "language" to the Monaco id that matches the extension: javascript,
-  typescript, html, css, scss, json, markdown, python, java, cpp, csharp, go,
-  rust, php, ruby, sql, xml, yaml, shell, ini. Use "plaintext" if unsure.
 - Change only what the task requires. Preserve the user's existing structure,
   naming, formatting and comment style.
 - Write production quality code: meaningful names, small focused functions,
@@ -101,13 +125,13 @@ Tool discipline:
 
 1. Understand the request. If it is a question about the code, answer it — do
    not modify files that the user did not ask you to change.
-2. Inspect what exists (get_tree, then get_File on the relevant files) before
+2. Inspect what exists (list_files, then read_file on the relevant files) before
    deciding anything.
 3. Plan the full set of changes, then execute it completely in this turn. A
    multi-file feature means every file: markup, styles and logic. Never stop
    after one file and offer to continue.
-4. If a tool returns success:false, read the error, correct the call, and retry
-   once with the fix. Do not repeat the identical failing call.
+4. After writing JavaScript that can run on its own, you may check it with
+   run_command (node file.js) and fix what fails.
 5. Deletion is destructive and irreversible. Delete only what the user clearly
    asked to delete. If it is ambiguous, ask first.
 6. When a request is genuinely unclear or could destroy work, ask one short
@@ -128,81 +152,114 @@ Your reply is rendered as Markdown in a narrow side panel next to the editor.
 `.trim()
 
 // Appends the live project context to the base prompt for one request.
-export const buildSystemPrompt = ({ projectId, projectName, activeFile } = {}) => {
+export const buildSystemPrompt = ({ projectName, folderName, activeFile } = {}) => {
    const context = [
       projectName && `Project name: ${projectName}`,
-      projectId && `Project id: ${projectId}`,
-      activeFile && `File currently open in the editor: ${activeFile.name} (_id: ${activeFile._id})`,
+      folderName
+         ? `Storage: the folder "${folderName}" on the user's device`
+         : "Storage: the cloud",
+      activeFile && `File currently open in the editor: ${activeFile}`,
    ].filter(Boolean)
-
-   if (!context.length) return systemprompt
 
    return `${systemprompt}\n\n# CURRENT SESSION\n\n${context.join("\n")}`
 }
 
+// Runs paused on a tool call wait here until the browser sends the results back
+export const checkpointer = new MemorySaver()
 
-const max_messages = 12
+const boundModels = models.map(({ name, llm }) => ({ name, model: llm.bindTools(toolDefinitions) }))
 
-const getRecentMessages = (
-   messages = []
-) => {
-   if (messages.length <= max_messages) {
-      return messages
+// Waiting longer than this for a per-minute limit would leave the user staring at a spinner
+const MAX_WAIT_MS = 30 * 1000
+// A model out of its daily quota is skipped for this long before it is tried again
+const DAILY_COOLDOWN_MS = 60 * 60 * 1000
+
+export const isRateLimited = (error) => error?.status === 429 || /\b429\b|Too Many Requests|RESOURCE_EXHAUSTED/i.test(error?.message || "")
+
+// Free-tier quotas are per model and per day or per minute ("...PerDayPerProjectPerModel-FreeTier")
+const isDailyLimit = (error) => /PerDay/i.test(`${error?.message || ""} ${JSON.stringify(error?.errorDetails || "")}`)
+
+// "This model is currently experiencing high demand" and similar short outages
+const isOverloaded = (error) => [500, 502, 503, 504].includes(error?.status) || /Service Unavailable|high demand|overloaded/i.test(error?.message || "")
+const OVERLOAD_COOLDOWN_MS = 30 * 1000
+
+// Model name -> time it may be tried again
+const cooldowns = new Map()
+
+// Tries the models in order, skipping ones known to be out of quota. A per-minute limit
+// is waited out when it is short; a daily one moves straight on to the next model.
+const invokeModel = async (messages) => {
+   let lastError = null
+   for (let attempt = 0; attempt < boundModels.length * 2; attempt++) {
+      const now = Date.now()
+      const available = boundModels.find(({ name }) => (cooldowns.get(name) ?? 0) <= now)
+      if (!available) {
+         const soonest = Math.min(...boundModels.map(({ name }) => cooldowns.get(name)))
+         if (soonest - now > MAX_WAIT_MS) break
+         await new Promise((resolve) => setTimeout(resolve, soonest - now))
+         continue
+      }
+      try {
+         return await available.model.invoke(messages)
+      } catch (error) {
+         if (isOverloaded(error)) {
+            lastError = error
+            cooldowns.set(available.name, Date.now() + OVERLOAD_COOLDOWN_MS)
+            console.warn(`AI model ${available.name} is overloaded; trying the next one`)
+            continue
+         }
+         if (!isRateLimited(error)) throw error
+         lastError = error
+         const seconds = Number(/retry in ([\d.]+)s/i.exec(error.message || "")?.[1] ?? 20)
+         const wait = isDailyLimit(error) ? DAILY_COOLDOWN_MS : Math.ceil(seconds * 1000) + 500
+         cooldowns.set(available.name, Date.now() + wait)
+         console.warn(`AI model ${available.name} is rate limited (${isDailyLimit(error) ? "daily quota" : "per minute"}); trying the next one`)
+      }
    }
+   // No model could answer: say whether quota or a busy provider is the cause
+   const error = lastError || new Error("All AI models are rate limited")
+   error.status = 429
+   error.dailyLimit = isDailyLimit(lastError)
+   error.overloaded = isOverloaded(lastError)
+   throw error
+}
 
-   const firstUserMessage = messages.find((message) => HumanMessage.isInstance(message))
-   const recents = messages.slice(-max_messages)
-   if (firstUserMessage && recents.includes(firstUserMessage)) {
-      return [
-         firstUserMessage, ...recents
-      ]
+const agent = async (state, config) => {
+   const system = new SystemMessage(buildSystemPrompt(config.configurable?.context))
+   const response = await invokeModel([system, ...state.messages])
+   return { messages: [response] }
+}
+
+// Hands the model's tool calls to the browser and waits for the results.
+// interrupt() stops the run here; resuming with Command({ resume: results })
+// re-enters this node and interrupt() then returns those results.
+const tools = (state) => {
+   const last = state.messages[state.messages.length - 1]
+   const toolCalls = last.tool_calls.map(({ id, name, args }) => ({ id, name, args }))
+   const results = interrupt({ toolCalls })
+
+   return {
+      messages: toolCalls.map((call) => {
+         const result = Array.isArray(results) ? results.find((item) => item?.id === call.id) : null
+         const content = result
+            ? (typeof result.output === "string" ? result.output : JSON.stringify(result.output))
+            : "Error: the browser returned no result for this call."
+         return new ToolMessage({ tool_call_id: call.id, name: call.name, content })
+      }),
    }
 }
 
-
-export const graph = ({
-   projectId, userId
-}) => {
-   const tools = fileTools({ projectId, userId })
-
-   const model = llm.bindTools(tools)
-   const agent = async (state) => {
-      const allMessages = state.messages || []
-      const recentMessages = getRecentMessages(allMessages)
-      const messages = [
-         new SystemMessage(system_prompt),
-         ...recentMessages
-      ]
-
-      const response = await model.invoke(messages)
-      console.log(response)
-
-      return {
-         messages: [
-            response
-         ]
-      }
-   }
-
-
-   const shouldContinue = (state) => {
-      const lastMessage = state.messages?.[state.messages.length - 1]
-      if (lastMessage instanceof AIMessage && lastMessage.tool_calls?.length) {
-         return "tools"
-      } else {
-         return "__end__"
-      }
-   }
-
-   const toolNode = new ToolNode(tools)
-   return new StateGraph(MessagesAnnotation)
-      .addNode("agent", agent)
-      .addNode("tools", toolNode)
-      .addEdge("__start__", "agent")
-      .addEdge("tools", "agent")
-      .addConditionalEdges("agent", shouldContinue)
-      .compile()
+const shouldContinue = (state) => {
+   const last = state.messages[state.messages.length - 1]
+   return last?.tool_calls?.length ? "tools" : "__end__"
 }
 
+export const graph = new StateGraph(MessagesAnnotation)
+   .addNode("agent", agent)
+   .addNode("tools", tools)
+   .addEdge("__start__", "agent")
+   .addEdge("tools", "agent")
+   .addConditionalEdges("agent", shouldContinue, ["tools", "__end__"])
+   .compile({ checkpointer })
 
 export default systemprompt

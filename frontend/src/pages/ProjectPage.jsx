@@ -1,9 +1,11 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { useDispatch, useSelector } from 'react-redux'
 import TopBar from '../components/TopBar'
-import { getProject } from '../features/project'
-import { getTree } from '../features/file'
+import { getProject, linkProjectFolder } from '../features/project'
+import { createRootFolder, getTree } from '../features/file'
+import { createToolRunner } from '../features/aiTools'
+import * as browserFs from '../utils/browserFs'
 import { setCurrentProject } from '../redux/projectSlice'
 import ActivityBar from '../components/ActivityBar'
 import Explorer from '../components/Explorer'
@@ -13,6 +15,17 @@ import Preview from '../components/Preview'
 import Editor from '../components/Editor'
 import BottomPanel from '../components/BottomPanel'
 import AiChat from '../components/AiChat'
+
+// Path of a node inside the project, e.g. ["src", "app.js"]; the root folder itself is left out
+const pathInProject = (nodes, id, parents = []) => {
+  for (const node of nodes || []) {
+    const path = [...parents, node.name]
+    if (node._id === id) return path
+    const found = pathInProject(node.children, id, path)
+    if (found) return found
+  }
+  return null
+}
 
 function ProjectPage() {
 
@@ -30,21 +43,53 @@ function ProjectPage() {
   const { id } = useParams()
   const dispatch = useDispatch()
   const currentProject = useSelector((state) => state.project.currentProject)
+  const loadedId = currentProject?._id
+  const loadedFolderName = currentProject?.folderName
+  // For a folder chosen in the browser: 'ready', or why it can't be opened yet (see browserFs.connect)
+  const [folderStatus, setFolderStatus] = useState(null)
+  // Files AmeekAi changed, for review: { path, fileId, name, before, after, state: 'pending' | 'undone' }.
+  // before is null for a file it created, after is null for one it deleted.
+  const [aiChanges, setAiChanges] = useState([])
+  // Reloads can overlap (AmeekAi changes files in quick succession), so only the latest one lands
+  const loadSeq = useRef(0)
   const loadTree = async () => {
+    const seq = ++loadSeq.current
     const data = await getTree(id)
-    setTree(data)
+    if (seq === loadSeq.current && data) setTree(data)
   }
   useEffect(() => {
     let cancelled = false
 
     const loadInitialData = async () => {
-      const treeData = await getTree(id)
-      if (!cancelled) setTree(treeData)
+      // Redux is cleared on refresh, so load the project from the URL id when needed.
+      // It comes first: a local project's tree is read from its folder, not the files service.
+      let folderName = loadedFolderName
+      if (loadedId !== id) {
+        const project = await getProject(id)
+        if (cancelled) return
+        if (project) dispatch(setCurrentProject(project))
+        folderName = project?.folderName
+      }
+      if (folderName) {
+        const status = await browserFs.connect(id)
+        if (cancelled) return
+        setFolderStatus(status)
+        if (status !== 'ready') {
+          // Needs a click to reconnect, which the Explorer offers
+          setTree([])
+          setShowExplorer(true)
+          return
+        }
+      }
 
-      // Redux is cleared on refresh, so load the project from the URL id when needed
-      if (currentProject?._id !== id) {
-        const projectData = await getProject(id)
-        if (!cancelled && projectData) dispatch(setCurrentProject(projectData))
+      const treeData = await getTree(id)
+      if (cancelled) return
+      setTree(treeData)
+      if (!folderName) {
+        // No folder and no root folder in the cloud: offer both instead of an empty Explorer
+        const empty = !treeData?.length
+        setFolderStatus(empty ? 'empty' : null)
+        if (empty) setShowExplorer(true)
       }
     }
 
@@ -52,7 +97,56 @@ function ProjectPage() {
     return () => {
       cancelled = true
     }
-  }, [id, currentProject?._id, dispatch])
+  }, [id, loadedId, loadedFolderName, dispatch])
+
+  // Browsers only allow folder access from a click, so reconnecting happens here
+  const connectFolder = async ({ chooseAnother = false, cloud = false } = {}) => {
+    if (cloud) {
+      // An empty project that keeps its files in the cloud needs its root folder
+      await createRootFolder({ projectId: id, projectName: currentProject?.name || 'project' })
+      setFolderStatus(null)
+      loadTree()
+      return
+    }
+    const linking = folderStatus === 'empty'
+    let status = chooseAnother || linking ? 'missing' : await browserFs.connect(id, { request: true })
+    if (status === 'missing') {
+      const handle = await browserFs.pickFolder()
+      if (!handle) return
+      await browserFs.linkFolder(id, handle)
+      if (linking) {
+        const project = await linkProjectFolder(id, handle.name)
+        if (project) dispatch(setCurrentProject(project))
+      }
+      status = 'ready'
+    }
+    setFolderStatus(status)
+    if (status === 'ready') loadTree()
+  }
+
+  // The browser asks again for a remembered folder on a new visit, and only a click may
+  // trigger that, so the first click anywhere reconnects it. Choosing "Allow on every
+  // visit" in the browser's prompt stops it asking at all.
+  useEffect(() => {
+    if (folderStatus !== 'permission') return
+    const reconnect = async () => {
+      const status = await browserFs.connect(id, { request: true })
+      if (status !== 'ready') return
+      setFolderStatus('ready')
+      const data = await getTree(id)
+      if (data) setTree(data)
+    }
+    window.addEventListener('pointerdown', reconnect, { once: true, capture: true })
+    return () => window.removeEventListener('pointerdown', reconnect, { capture: true })
+  }, [id, folderStatus])
+
+  useEffect(() => {
+    if (folderStatus !== 'ready') return
+    return browserFs.watch(id, async () => {
+      const data = await getTree(id)
+      if (data) setTree(data)
+    })
+  }, [id, folderStatus])
 
   // Leaving the preview (from any toggle) also leaves fullscreen
   const setPreview = (value) => {
@@ -71,6 +165,75 @@ function ProjectPage() {
     setOpenTabs(prev => prev.some(tab => tab._id == file._id) ? prev : [...prev, file])
     setActiveTab(file)
     setPreview(false)
+  }
+
+  // ---------- AmeekAi's changes: shown live as a diff, then kept, undone or redone ----------
+
+  const recordAiChange = (change) => {
+    setAiChanges(prev => {
+      const existing = prev.find(c => c.path === change.path)
+      // Several edits to one file are one change: from its first "before" to its latest "after"
+      const merged = existing
+        ? { ...existing, fileId: change.fileId, name: change.name, after: change.after, state: 'pending' }
+        : { ...change, state: 'pending' }
+      const rest = prev.filter(c => c.path !== change.path)
+      return merged.before === merged.after ? rest : [...rest, merged]
+    })
+    // Follow along: the file the AI just changed opens in the editor, showing the diff
+    if (change.after !== null) openFile({ _id: change.fileId, name: change.name, type: 'file', content: change.after })
+  }
+
+  // Writes a version of a changed file back by path (null deletes it), then refreshes
+  const applyVersion = async (change, content) => {
+    const runner = createToolRunner({ projectId: id })
+    const call = content === null
+      ? { id: 'review', name: 'delete_path', args: { path: change.path } }
+      : { id: 'review', name: 'write_file', args: { path: change.path, content } }
+    const result = await runner.run(call)
+    await loadTree()
+    return result.ok
+  }
+
+  const setChangeState = (path, state) =>
+    setAiChanges(prev => prev.map(c => (c.path === path ? { ...c, state } : c)))
+
+  const keepChange = (path) => setAiChanges(prev => prev.filter(c => c.path !== path))
+
+  const undoChange = async (path) => {
+    const change = aiChanges.find(c => c.path === path)
+    if (change && await applyVersion(change, change.before)) setChangeState(path, 'undone')
+  }
+
+  const redoChange = async (path) => {
+    const change = aiChanges.find(c => c.path === path)
+    if (change && await applyVersion(change, change.after)) setChangeState(path, 'pending')
+  }
+
+  const undoAllChanges = async () => {
+    for (const change of aiChanges.filter(c => c.state === 'pending')) {
+      if (await applyVersion(change, change.before)) setChangeState(change.path, 'undone')
+    }
+  }
+
+  const keepAllChanges = () => setAiChanges([])
+
+  // Tree ids can change (a file recreated by redo), so the open file is matched by path
+  const rootOffset = tree.length === 1 && tree[0].type === 'folder' ? 1 : 0
+  const activePath = activeTab ? pathInProject(tree, activeTab._id)?.slice(rootOffset).join('/') : undefined
+  const activeAiChange = activePath
+    ? aiChanges.find(c => c.path === activePath)
+    : aiChanges.find(c => c.fileId === activeTab?._id)
+
+  const openChangedFile = (path) => {
+    const change = aiChanges.find(c => c.path === path)
+    if (!change || change.after === null && change.state === 'pending') return
+    const find = (nodes, parts) => {
+      const node = nodes?.find(n => n.name === parts[0])
+      return parts.length === 1 ? node : find(node?.children, parts.slice(1))
+    }
+    const top = rootOffset ? tree[0].children : tree
+    const node = find(top, path.split('/'))
+    if (node) openFile(node)
   }
 
   return (
@@ -96,6 +259,9 @@ function ProjectPage() {
               projectId={id}
               tree={tree}
               openFile={openFile}
+              folderPrompt={folderStatus && folderStatus !== 'ready'
+                ? { status: folderStatus, folderName: loadedFolderName, onConnect: connectFolder }
+                : null}
 
               reloadTree={loadTree}
 
@@ -179,6 +345,10 @@ function ProjectPage() {
                     drafts={drafts}
                     setDrafts={setDrafts}
                     onSaved={loadTree}
+                    aiChange={activeAiChange}
+                    onKeepChange={keepChange}
+                    onUndoChange={undoChange}
+                    onRedoChange={redoChange}
                   />
                 </div>
           </div>
@@ -202,6 +372,20 @@ function ProjectPage() {
             <AiChat
               key={id}
               projectId={id}
+              context={{
+                projectName: currentProject?.name,
+                folderName: currentProject?.folderName,
+                activeFile: activePath,
+              }}
+              onFilesChanged={loadTree}
+              onAiChange={recordAiChange}
+              aiChanges={aiChanges}
+              onOpenChange={openChangedFile}
+              onKeepChange={keepChange}
+              onUndoChange={undoChange}
+              onRedoChange={redoChange}
+              onKeepAll={keepAllChanges}
+              onUndoAll={undoAllChanges}
               onClose={() => setShowChat(false)}
             />
           )}

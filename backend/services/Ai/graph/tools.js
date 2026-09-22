@@ -1,306 +1,84 @@
 import { tool } from "@langchain/core/tools"
 import { z } from "zod"
-import { createFile, createFolder, deleteFile, getFile, getTree, updateFile } from "../utils/fetchFileAPIs.js"
 
+// The tools AmeekAi can call. They only describe each tool to the model: the user's
+// browser runs them, because a project's files may live in a folder on the user's
+// device that this server cannot reach. The graph pauses at each tool call, the
+// browser executes it through the same file layer the Explorer uses, and the graph
+// resumes with the result (see graph.js and controller/ai.controller.js).
 
-
-const compactTree = (items = []) => {
-      return items.map((item) => ({
-            _id: item._id,
-            parentId: item.parentId,
-            name: item.name,
-            type: item.type,
-            language: item.language,
-            extension: item.extension,
-
-            children: compactTree(
-                  item.children || []
-            ),
-      }))
+const runsInBrowser = () => {
+      throw new Error("AmeekAi tools run in the user's browser, not on the server")
 }
 
-export const fileTools = ({ projectId, userId }) => {
-      const getTreeTool = tool(async () => {
-            console.log("ai tool get tree ")
-            const result = await getTree({ projectId, userId })
-            const tree = compactTree(result)
-            return JSON.stringify({
-                  success: true,
-                  tree
-            })
-      },
-            {
-                  name: "get_tree",
-                  description: `
-Get the complete project file and folder tree.
+const path = z.string().describe("Path relative to the project root, e.g. \"src/app.js\". Use \".\" for the root.")
 
-IMPORTANT:
+const define = (name, description, schema) => tool(runsInBrowser, { name, description, schema })
 
-1. Use this when the project structure is unknown.
-2. Do not repeatedly call get_tree.
-3. type="folder" means folder.
-4. type="file" means file.
-5. Folder IDs are used as parentId.
-6. NEVER call get_file with a folder ID.
-7. Do not use terminal commands to inspect the project.
-8. Use the exact IDs returned by this tool.
-The tree contains:
-_id
-parentId
-name
-type
-language
-extension
-children
-`,
-                  schema: z.object({})
+export const toolDefinitions = [
+      define("list_files", `
+List the project's folders and files as paths, with file sizes.
+Call it once at the start of a task when you do not know the structure yet.
+Folders such as node_modules and .git are listed but not expanded.`,
+            z.object({
+                  path: path.optional().describe("Only list inside this folder. Defaults to the whole project."),
+            })),
 
-            })
+      define("read_file", `
+Read the full content of one file. Read a file before changing it.`,
+            z.object({ path })),
 
-      const getFileTool = tool(async (fileId) => {
-            console.log("ai tool get-file")
-            const file = await getFile({ userId, id: fileId })
-            if (file && file.type != "file") {
-                  console.log("get file blocked , id is folder")
-                  return JSON.stringify({
-                        success: false,
-                        error: "The provided Id belongs to a folder , not a file",
-                        instructions: "Do not call get_file for folder . Use the folder ID as parentId"
+      define("write_file", `
+Create a file, or overwrite an existing one, with the COMPLETE content.
+Missing parent folders are created automatically.
+Never write placeholders like "// rest unchanged": anything left out is deleted.
+For a small change to an existing file prefer edit_file.`,
+            z.object({
+                  path,
+                  content: z.string().describe("The complete file content"),
+            })),
 
+      define("edit_file", `
+Change part of an existing file by replacing an exact piece of text.
+"find" must match the file exactly (including indentation) and occur exactly once;
+include a few surrounding lines to make it unique. Read the file first.`,
+            z.object({
+                  path,
+                  find: z.string().describe("Exact text currently in the file"),
+                  replace: z.string().describe("Text to put in its place"),
+            })),
 
-                  })
-            }
-            if (!file) {
-                  console.log("file not found")
-                  return JSON.stringify({
-                        success: false,
-                        error: "File not found",
-                  })
-            }
-            return JSON.stringify({
-                  success: true,
-                  file: {
-                        _id: file._id,
-                        name: file.name,
-                        type: file.type,
-                        content: file.content || "",
-                        language: file.language,
-                        extension: file.extension,
-                        parentId: file.parentId
-                  }
-            })
-      },
-            {
-                  name: "get_File",
-                  description: `
-Read an EXISTING FILE before modifying it.
+      define("create_folder", `
+Create a folder, including any missing parent folders.`,
+            z.object({ path })),
 
-STRICT RULES:
+      define("rename_path", `
+Rename a file or folder in place (same parent folder).`,
+            z.object({
+                  path,
+                  newName: z.string().describe("New name only, not a path, e.g. \"main.js\""),
+            })),
 
-1. fileId must belong to a file.
-2. NEVER pass a folder ID.
-3. Use exact file ID from get_tree.
-4. Call this before update_file.
-5. Do not call this for newly created files unless necessary.
-6. Do not call this repeatedly for the same file.
+      define("delete_path", `
+Delete a file or a folder with everything inside it. Irreversible.
+Only delete what the user clearly asked to delete.`,
+            z.object({ path })),
 
-The response contains the complete file content.
-`
+      define("search_files", `
+Search the text of every file. Returns matching lines as path:line: text.`,
+            z.object({
+                  query: z.string().describe("Text to find, or a regular expression when regex is true"),
+                  regex: z.boolean().optional(),
+            })),
 
-                  ,
-                  schema: z.object({
-                        fileId: z.string()
+      define("run_command", `
+Run a command in the project's terminal and get its output.
+The terminal is a limited bash-like shell locked to the project: ls, cat, grep, find,
+tree, wc, head, tail, mkdir, touch, cp, mv, rm, echo with > and >>, pipes, && and ||,
+and node <file.js> (CommonJS, project files only; no npm packages).
+There is NO npm, git, python or network access. Use it to run and check JavaScript,
+not to edit files: use the file tools for that.`,
+            z.object({ command: z.string() })),
+]
 
-                  })
-
-            })
-
-      const createFolderTool = tool(async (name, parentId) => {
-            console.log("ai tool create-folder ")
-            const folder = await createFolder({ projectId, userId, name, parentId })
-
-            return JSON.stringify({
-                  success: true,
-                  operation: "folder-created",
-                  folder: {
-                        _id: folder._id,
-                        name: folder.name,
-                        type: folder.type,
-                        parentId: folder.parentId
-                  }
-            })
-      },
-            {
-                  name: "create_Folder",
-                  description: `
-Create a new folder.
-
-RULES:
-
-1. Create parent folders first.
-2. Use exact parentId from get_tree.
-3. Never create duplicate folders.
-4. A folder directly inside another folder must use that folder's ID as parentId.
-5. After creation continue with the remaining files.
-6. Do not call get_tree again just to verify the folder.
-`
-
-
-                  ,
-                  schema: z.object({
-                        name: z.string(),
-                        parentId: z.string().nullable()
-
-                  })
-
-            })
-
-      const createFileTool = tool(async (name, parentId, content, language) => {
-            console.log("ai tool create-file ")
-            const file = await createFile({ projectId, userId, name, parentId, content, language: language || "plainText" })
-
-            return JSON.stringify({
-                  success: true,
-                  operation: "file-created",
-                  file: {
-                        _id: file._id,
-                        name: file.name,
-                        type: file.type,
-                        parentId: file.parentId,
-                        language: file.language,
-                        content: file.content
-
-                  }
-            })
-      },
-            {
-                  name: "create_File",
-                  description: `
-Create a NEW FILE.
-
-RULES:
-
-1. Use get_tree first when project structure is unknown.
-2. Use exact folder ID as parentId.
-3. Never create duplicate files.
-4. Send complete file content.
-5. Create folders before files inside them.
-6. Never use terminal commands to create files.
-7. Do not call get_file immediately after creating a file.
-8. Continue creating all required files.
-9. Do not stop after creating only one file.
-
-For a React/Vite project, create ALL required files.
-`
-
-
-                  ,
-                  schema: z.object({
-                        name: z.string(),
-                        parentId: z.string(),
-                        language: z.string().optional(),
-                        content: z.string()
-
-                  })
-
-            })
-
-      const updateFileTool = tool(async (userId, name, content, fileId) => {
-            console.log("ai tool update-file ")
-            const file = await updateFile(userId, name, content, fileId)
-
-            return JSON.stringify({
-                  success: true,
-                  operation: "file-updated",
-                  file: {
-                        _id: file._id,
-                        name: file.name,
-                        type: file.type,
-                        parentId: file.parentId,
-                        language: file.language,
-                        content: file.content
-
-                  }
-            })
-      },
-            {
-                  name: "update_File",
-                  description: `
-Update an EXISTING FILE.
-
-RULES:
-
-1. Call get_file before updating.
-2. fileId must be an actual file ID.
-3. NEVER use a folder ID.
-4. Send the complete updated file content.
-5. Do not update files that do not exist.
-6. After successful update continue with remaining work.
-7. Do not call get_file again unless another modification is needed.
-`
-
-
-
-
-                  ,
-                  schema: z.object({
-                        name: z.string(),
-                        content: z.string(),
-                        fileId: z.string()
-
-                  })
-
-            })
-
-
-      const deleteFileTool = tool(async (fileId) => {
-            console.log("ai tool delete-file ")
-            const file = await deleteFile(userId, fileId)
-
-            return JSON.stringify({
-                  success: true,
-                  operation: "file-deleted",
-                  file: {
-                        _id: file._id,
-                  }
-            })
-      },
-            {
-                  name: "delete_File",
-                  description: `
-Delete an EXISTING FILE from the project.
-
-STRICT RULES:
-
-1. fileId must belong to an actual file.
-2. NEVER pass a folder ID.
-3. Use the exact file ID from get_tree.
-4. Before deleting, make sure the target is actually a file.
-5. Do not delete a file unless the user's request requires it.
-6. Never use terminal commands to delete files.
-7. After successful deletion, continue with the remaining work.
-8. Do not call get_file after deletion.
-`
-
-
-
-
-
-                  ,
-                  schema: z.object({
-
-                        fileId: z.string()
-
-                  })
-
-            })
-      return [
-            getTreeTool,
-            getFileTool,
-            createFolderTool,
-            createFileTool,
-            updateFileTool,
-            deleteFileTool
-      ]
-
-}
+export const toolNames = new Set(toolDefinitions.map((definition) => definition.name))

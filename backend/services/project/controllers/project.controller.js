@@ -10,12 +10,13 @@ export const createProject = async (req, res) => {
             return res.status(401).json({ message: "Unauthorized" })
         }
 
-        const { name, description } = req.body
+        const { name, description, folderName } = req.body
 
         const project = await Project.create({
             owner: userId,
             name,
-            description
+            description,
+            folderName: typeof folderName === "string" && folderName.trim() ? folderName.trim() : undefined
         })
 
         const key = `projects:${userId}`
@@ -200,3 +201,43 @@ export const deleteProject = async (req, res) => {
     }
 }
 
+// Links an existing project to a folder on the user's device (only its name is known)
+export const linkFolder = async (req, res) => {
+    try {
+        const userId = req.headers["x-user-id"]
+
+        if (!userId) {
+            return res.status(401).json({ message: "Unauthorized" })
+        }
+
+        const { id } = req.params
+        const { folderName } = req.body
+
+        if (typeof folderName !== "string" || !folderName.trim()) {
+            return res.status(400).json({ message: "folderName is required" })
+        }
+
+        const project = await Project.findOneAndUpdate(
+            { _id: id, owner: userId },
+            { folderName: folderName.trim() },
+            { new: true }
+        )
+
+        if (!project) {
+            return res.status(404).json({
+                message: "Project not found"
+            })
+        }
+
+        await redis.del(`projects:${userId}`)
+        await redis.del(`starred-projects:${userId}`)
+
+        return res.status(200).json(project)
+
+    } catch (error) {
+        console.error("Link folder error:", error)
+        return res.status(500).json({
+            message: "Link folder error"
+        })
+    }
+}

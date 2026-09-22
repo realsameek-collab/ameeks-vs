@@ -1,5 +1,5 @@
 import React from 'react'
-import MonacoEditor from '@monaco-editor/react'
+import MonacoEditor, { DiffEditor } from '@monaco-editor/react'
 
 const THEME = 'ameek-dark'
 
@@ -69,6 +69,13 @@ const configure = (monaco) => {
             'scrollbarSlider.hoverBackground': '#ffffff22',
             'scrollbarSlider.activeBackground': '#ffffff30',
             'focusBorder': '#00000000',
+            // AmeekAi's changes: added lines green, removed lines red
+            'diffEditor.insertedLineBackground': '#22c55e1a',
+            'diffEditor.insertedTextBackground': '#22c55e38',
+            'diffEditor.removedLineBackground': '#ef44441a',
+            'diffEditor.removedTextBackground': '#ef444438',
+            'diffEditorGutter.insertedLineBackground': '#22c55e30',
+            'diffEditorGutter.removedLineBackground': '#ef444430',
         },
     })
 
@@ -130,3 +137,34 @@ function CodeEditor({ path, language, defaultValue, onChange, onCursorChange }) 
 }
 
 export default CodeEditor
+
+const diffOptions = {
+    ...options,
+    readOnly: true,
+    originalEditable: false,
+    // One column, removed lines shown above the lines that replaced them
+    renderSideBySide: false,
+    renderIndicators: true,
+    renderOverviewRuler: true,
+    ignoreTrimWhitespace: false,
+    minimap: { enabled: false },
+    stickyScroll: { enabled: false },
+}
+
+// Read-only inline diff of one file, e.g. before and after AmeekAi changed it
+export function DiffView({ path, language, original, modified }) {
+    return (
+        <DiffEditor
+            original={original}
+            modified={modified}
+            language={language}
+            // Separate from the tab's own model so the diff never touches its undo history
+            originalModelPath={`ameek-diff://original/${path}`}
+            modifiedModelPath={`ameek-diff://modified/${path}`}
+            beforeMount={configure}
+            theme={THEME}
+            options={diffOptions}
+            loading={<Loading />}
+        />
+    )
+}

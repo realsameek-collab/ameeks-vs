@@ -1,8 +1,10 @@
-import React, { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { AnimatePresence, motion } from 'motion/react'
-import { ArrowUp, Bug, Eraser, FileText, FlaskConical, Paperclip, RotateCcw, Sparkles, X } from 'lucide-react'
+import { AlertCircle, ArrowUp, Bug, Check, ChevronDown, FileText, FlaskConical, History, MessageSquarePlus, Paperclip, Redo2, RotateCcw, Sparkles, Square, Trash2, Undo2, X } from 'lucide-react'
 import Markdown from './Markdown'
-import { askAmeekAi } from '../features/ai'
+import { runAmeekAi } from '../features/ai'
+import { CHANGING_TOOLS, createToolRunner, describeToolCall } from '../features/aiTools'
+import { countLineChanges } from '../utils/lineDiff'
 
 const MAX_LINES = 5
 const LINE_HEIGHT = 20
@@ -17,19 +19,45 @@ const QUICK_ACTIONS = [
     { icon: FlaskConical, label: 'Write a test', prompt: 'Write a unit test for the code I am working on.' },
 ]
 
-const storageKey = (projectId) => `ameekai:chat:${projectId || 'workspace'}`
-
-// The panel unmounts whenever the Activity Bar toggle is used, so history lives in storage
-const loadHistory = (projectId) => {
-    try {
-        const saved = localStorage.getItem(storageKey(projectId))
-        return saved ? JSON.parse(saved).filter((message) => !message.pending) : []
-    } catch {
-        return []
-    }
-}
+// Before chats had history, one conversation per project was stored under this key
+const legacyKey = (projectId) => `ameekai:chat:${projectId || 'workspace'}`
+const chatsKey = (projectId) => `ameekai:chats:${projectId || 'workspace'}`
+const MAX_CHATS = 30
 
 const newId = () => `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+const createChat = (messages = []) => ({ id: newId(), updatedAt: Date.now(), messages })
+const chatTitle = (chat) => chat.messages.find((message) => message.role === 'user')?.content.slice(0, 60) || 'New chat'
+const timeAgo = (time) => {
+    const minutes = Math.round((Date.now() - time) / 60000)
+    if (minutes < 1) return 'just now'
+    if (minutes < 60) return `${minutes}m ago`
+    if (minutes < 60 * 24) return `${Math.round(minutes / 60)}h ago`
+    return `${Math.round(minutes / 1440)}d ago`
+}
+
+// The panel unmounts whenever the Activity Bar toggle is used, so chats live in storage:
+// { activeId, chats: [{ id, updatedAt, messages }] }, newest first
+const loadChats = (projectId) => {
+    const clean = (messages) => (Array.isArray(messages) ? messages.filter((message) => !message.pending) : [])
+    try {
+        const saved = JSON.parse(localStorage.getItem(chatsKey(projectId)))
+        if (saved?.chats?.length) {
+            const chats = saved.chats.map((chat) => ({ ...chat, messages: clean(chat.messages) }))
+            return { activeId: chats.some((chat) => chat.id === saved.activeId) ? saved.activeId : chats[0].id, chats }
+        }
+    } catch {
+        // Unreadable storage starts fresh
+    }
+    // The single conversation saved before chats had history becomes the first chat
+    let legacy
+    try {
+        legacy = clean(JSON.parse(localStorage.getItem(legacyKey(projectId))))
+    } catch {
+        legacy = []
+    }
+    const chat = createChat(legacy)
+    return { activeId: chat.id, chats: [chat] }
+}
 const formatSize = (bytes) => (bytes < 1024 ? `${bytes} B` : `${Math.round(bytes / 1024)} KB`)
 
 // A floating mascot for the empty state — blinks and drifts, nothing else
@@ -148,6 +176,35 @@ function AttachmentChip({ file, onRemove }) {
     )
 }
 
+// What AmeekAi did in the project during one reply, updated live while it works
+function Steps({ steps }) {
+    return (
+        <ul className='mb-1.5 flex flex-col gap-0.5'>
+            {steps.map((step) => (
+                <li key={step.id} title={step.detail} className='flex items-start gap-1.5 text-[11px] leading-4 text-zinc-500'>
+                    <span className='mt-[2px] flex size-3 shrink-0 items-center justify-center'>
+                        {step.status === 'running' ? (
+                            <motion.span
+                                className='size-2.5 rounded-full border border-zinc-600 border-t-sky-400'
+                                animate={{ rotate: 360 }}
+                                transition={{ duration: 0.8, repeat: Infinity, ease: 'linear' }}
+                            />
+                        ) : step.status === 'error' ? (
+                            <AlertCircle size={11} className='text-rose-400' />
+                        ) : (
+                            <Check size={11} className='text-emerald-400' />
+                        )}
+                    </span>
+                    <span className='min-w-0 [overflow-wrap:anywhere]'>
+                        <span className='text-zinc-400'>{step.verb}</span>{' '}
+                        <span className='font-mono text-[10.5px] text-zinc-300'>{step.target}</span>
+                    </span>
+                </li>
+            ))}
+        </ul>
+    )
+}
+
 function Message({ message, onRetry }) {
     if (message.role === 'user') {
         return (
@@ -183,6 +240,7 @@ function Message({ message, onRetry }) {
             </div>
 
             <div className='min-w-0 flex-1 rounded-2xl rounded-tl-md border border-white/[0.06] bg-white/[0.03] px-3 py-2'>
+                {message.steps?.length > 0 && <Steps steps={message.steps} />}
                 {message.pending ? (
                     <TypingDots />
                 ) : message.error ? (
@@ -205,8 +263,136 @@ function Message({ message, onRetry }) {
     )
 }
 
-function AiChat({ projectId, onClose }) {
-    const [messages, setMessages] = useState(() => loadHistory(projectId))
+function IconButton({ icon: Icon, title, onClick, disabled }) {
+    return (
+        <button
+            type='button'
+            onClick={onClick}
+            disabled={disabled}
+            title={title}
+            aria-label={title}
+            className='rounded p-0.5 text-zinc-500 transition-colors hover:bg-white/[0.08] hover:text-zinc-100 disabled:opacity-30'
+        >
+            <Icon size={12} />
+        </button>
+    )
+}
+
+// Files AmeekAi changed, waiting to be kept or undone; a file opens its diff in the editor
+function ChangesPanel({ changes, onOpen, onKeep, onUndo, onRedo, onKeepAll, onUndoAll }) {
+    const [open, setOpen] = useState(true)
+    const [busy, setBusy] = useState(false)
+    const counted = useMemo(
+        () => changes.map((change) => ({ ...change, ...countLineChanges(change.before, change.after) })),
+        [changes]
+    )
+    const pending = changes.filter((change) => change.state === 'pending').length
+    const act = async (action, ...args) => {
+        setBusy(true)
+        try {
+            await action(...args)
+        } finally {
+            setBusy(false)
+        }
+    }
+
+    return (
+        <div className='mb-2 overflow-hidden rounded-lg border border-white/[0.07] bg-white/[0.02]'>
+            <div className='flex items-center justify-between gap-2 px-2 py-1.5'>
+                <button
+                    type='button'
+                    onClick={() => setOpen(!open)}
+                    className='flex min-w-0 items-center gap-1 text-[11.5px] font-medium text-zinc-300'
+                >
+                    <ChevronDown size={12} className={`shrink-0 text-zinc-500 transition-transform ${open ? '' : '-rotate-90'}`} />
+                    {changes.length} file{changes.length === 1 ? '' : 's'} changed
+                </button>
+                <div className='flex shrink-0 items-center gap-1'>
+                    <button
+                        type='button'
+                        onClick={() => act(onUndoAll)}
+                        disabled={busy || !pending}
+                        className='rounded px-1.5 py-0.5 text-[11px] text-zinc-400 transition-colors hover:bg-white/[0.06] hover:text-zinc-100 disabled:opacity-30'
+                    >
+                        Undo all
+                    </button>
+                    <button
+                        type='button'
+                        onClick={() => act(onKeepAll)}
+                        disabled={busy}
+                        className='rounded bg-emerald-500/15 px-1.5 py-0.5 text-[11px] font-medium text-emerald-300 transition-colors hover:bg-emerald-500/25 disabled:opacity-30'
+                    >
+                        Keep all
+                    </button>
+                </div>
+            </div>
+            {open && (
+                <ul className='max-h-36 overflow-y-auto border-t border-white/[0.05] py-1'>
+                    {counted.map((change) => {
+                        const undone = change.state === 'undone'
+                        return (
+                            <li key={change.path} className='group flex items-center gap-1.5 px-2 py-0.5'>
+                                <button
+                                    type='button'
+                                    onClick={() => onOpen(change.path)}
+                                    title={change.path}
+                                    className={`min-w-0 flex-1 truncate text-left font-mono text-[11px] transition-colors hover:text-white
+                                        ${undone ? 'text-zinc-600 line-through' : 'text-zinc-300'}`}
+                                >
+                                    {change.path}
+                                </button>
+                                <span className='shrink-0 font-mono text-[10.5px]'>
+                                    {change.before === null ? (
+                                        <span className='text-emerald-400'>new</span>
+                                    ) : change.after === null ? (
+                                        <span className='text-rose-400'>deleted</span>
+                                    ) : (
+                                        <>
+                                            <span className='text-emerald-400'>+{change.added}</span>{' '}
+                                            <span className='text-rose-400'>−{change.removed}</span>
+                                        </>
+                                    )}
+                                </span>
+                                {undone ? (
+                                    <IconButton icon={Redo2} title='Redo' onClick={() => act(onRedo, change.path)} disabled={busy} />
+                                ) : (
+                                    <IconButton icon={Undo2} title='Undo' onClick={() => act(onUndo, change.path)} disabled={busy} />
+                                )}
+                                <IconButton icon={Check} title={undone ? 'Dismiss' : 'Keep'} onClick={() => onKeep(change.path)} disabled={busy} />
+                            </li>
+                        )
+                    })}
+                </ul>
+            )}
+        </div>
+    )
+}
+
+function AiChat({
+    projectId,
+    context,
+    onFilesChanged,
+    onAiChange,
+    aiChanges = [],
+    onOpenChange,
+    onKeepChange,
+    onUndoChange,
+    onRedoChange,
+    onKeepAll,
+    onUndoAll,
+    onClose,
+}) {
+    const [store, setStore] = useState(() => loadChats(projectId))
+    const [showHistory, setShowHistory] = useState(false)
+    const activeChat = store.chats.find((chat) => chat.id === store.activeId) || store.chats[0]
+    const messages = activeChat.messages
+    // Updates the open chat's messages; takes a new list or an updater, like a state setter
+    const setMessages = (update) => setStore((current) => ({
+        ...current,
+        chats: current.chats.map((chat) => chat.id === current.activeId
+            ? { ...chat, messages: typeof update === 'function' ? update(chat.messages) : update, updatedAt: Date.now() }
+            : chat),
+    }))
     const [input, setInput] = useState('')
     const [attachments, setAttachments] = useState([])
     const [sending, setSending] = useState(false)
@@ -214,14 +400,22 @@ function AiChat({ projectId, onClose }) {
     const scrollRef = useRef(null)
     const textareaRef = useRef(null)
     const fileInputRef = useRef(null)
+    const abortRef = useRef(null)
+
+    // Stop a reply that is still running when the panel closes
+    useEffect(() => () => abortRef.current?.abort(), [])
 
     useEffect(() => {
         try {
-            localStorage.setItem(storageKey(projectId), JSON.stringify(messages.filter((message) => !message.pending)))
+            const chats = store.chats
+                .map((chat) => ({ ...chat, messages: chat.messages.filter((message) => !message.pending) }))
+                .slice(0, MAX_CHATS)
+            localStorage.setItem(chatsKey(projectId), JSON.stringify({ activeId: store.activeId, chats }))
+            localStorage.removeItem(legacyKey(projectId))
         } catch {
             // Storage full or blocked — the session still works, it just will not persist
         }
-    }, [messages, projectId])
+    }, [store, projectId])
 
     useEffect(() => {
         scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' })
@@ -242,26 +436,54 @@ function AiChat({ projectId, onClose }) {
 
         const userMessage = { id: newId(), role: 'user', content, attachments: files.map(({ name, size }) => ({ name, size })) }
         const pendingId = newId()
-        const history = [...messages.filter((message) => !message.error), userMessage]
+        // Earlier turns only; failed replies are left out so the model does not repeat them
+        const history = messages
+            .filter((message) => !message.error && !message.pending && message.content)
+            .map(({ role, content: body }) => ({ role: role === 'ai' ? 'assistant' : 'user', content: body }))
 
-        setMessages([...messages, userMessage, { id: pendingId, role: 'ai', content: '', pending: true }])
+        setMessages([...messages, userMessage, { id: pendingId, role: 'ai', content: '', pending: true, steps: [] }])
         setInput('')
         setAttachments([])
         setSending(true)
 
-        const { reply, error } = await askAmeekAi({
+        const controller = new AbortController()
+        abortRef.current = controller
+        const runner = createToolRunner({ projectId, onChange: onAiChange })
+        const updatePending = (update) =>
+            setMessages((prev) => prev.map((message) => (message.id === pendingId ? update(message) : message)))
+
+        const { reply, error, stopped } = await runAmeekAi({
             projectId,
-            messages: history.map(({ role, content: body }) => ({ role: role === 'ai' ? 'assistant' : 'user', content: body })),
+            message: content,
+            history,
             attachments: files,
+            context,
+            signal: controller.signal,
+            runTool: runner.run,
+            onToolCall: (call) => updatePending((message) => ({
+                ...message,
+                steps: [...(message.steps || []), { id: call.id, ...describeToolCall(call), status: 'running' }],
+            })),
+            onToolResult: (call, result) => {
+                // The Explorer and open tabs follow along as files change
+                if (result.ok && CHANGING_TOOLS.has(call.name)) onFilesChanged?.()
+                updatePending((message) => ({
+                    ...message,
+                    steps: message.steps.map((step) => step.id === call.id
+                        ? { ...step, status: result.ok ? 'done' : 'error', detail: result.ok ? undefined : result.output.slice(0, 300) }
+                        : step),
+                }))
+            },
         })
 
-        setMessages((prev) =>
-            prev.map((message) =>
-                message.id === pendingId
-                    ? { id: pendingId, role: 'ai', content: error || reply || 'AmeekAi returned an empty response.', error: Boolean(error) }
-                    : message
-            )
-        )
+        if (abortRef.current === controller) abortRef.current = null
+        updatePending((message) => ({
+            id: pendingId,
+            role: 'ai',
+            steps: message.steps,
+            content: stopped ? '_Stopped._' : error || reply || 'AmeekAi returned an empty response.',
+            error: Boolean(error),
+        }))
         setSending(false)
         textareaRef.current?.focus()
     }
@@ -302,14 +524,38 @@ function AiChat({ projectId, onClose }) {
         textareaRef.current?.focus()
     }
 
-    const clear = () => {
-        setMessages([])
+    // Starts a fresh conversation; an empty open chat is reused instead of piling up
+    const newChat = () => {
+        setShowHistory(false)
         setInput('')
         setAttachments([])
+        if (messages.length) {
+            const chat = createChat()
+            setStore((current) => ({ activeId: chat.id, chats: [chat, ...current.chats].slice(0, MAX_CHATS) }))
+        }
         textareaRef.current?.focus()
     }
 
+    const openChat = (chatId) => {
+        setStore((current) => ({ ...current, activeId: chatId }))
+        setShowHistory(false)
+    }
+
+    const deleteChat = (chatId) => {
+        setStore((current) => {
+            const chats = current.chats.filter((chat) => chat.id !== chatId)
+            if (!chats.length) {
+                const chat = createChat()
+                return { activeId: chat.id, chats: [chat] }
+            }
+            return { activeId: current.activeId === chatId ? chats[0].id : current.activeId, chats }
+        })
+    }
+
+    const pastChats = [...store.chats].filter((chat) => chat.messages.length).sort((a, b) => b.updatedAt - a.updatedAt)
+
     const canSend = (input.trim().length > 0 || attachments.length > 0) && !sending
+    const stop = () => abortRef.current?.abort()
 
     return (
         <motion.div
@@ -317,7 +563,7 @@ function AiChat({ projectId, onClose }) {
             animate={{ opacity: 1, x: 0, width: 288 }}
             exit={{ opacity: 0, x: 16, width: 0 }}
             transition={{ duration: 0.2, ease: 'easeOut' }}
-            className='flex min-h-0 shrink-0 flex-col overflow-hidden border-l border-white/[0.06] bg-[#111113]/90 backdrop-blur-xl'
+            className='relative flex min-h-0 shrink-0 flex-col overflow-hidden border-l border-white/[0.06] bg-[#111113]/90 backdrop-blur-xl'
         >
             <div className='flex h-10 w-72 shrink-0 items-center justify-between gap-2 border-b border-white/[0.06] px-3'>
                 <div className='flex min-w-0 items-center gap-2'>
@@ -341,13 +587,24 @@ function AiChat({ projectId, onClose }) {
                 <div className='flex shrink-0 items-center gap-0.5'>
                     <button
                         type='button'
-                        onClick={clear}
-                        disabled={messages.length === 0}
-                        title='Clear Chat'
-                        aria-label='Clear Chat'
+                        onClick={newChat}
+                        disabled={sending || messages.length === 0}
+                        title='New Chat'
+                        aria-label='New Chat'
                         className='rounded-md p-1 text-zinc-500 transition-colors hover:bg-white/[0.06] hover:text-zinc-200 disabled:pointer-events-none disabled:opacity-30'
                     >
-                        <Eraser size={14} />
+                        <MessageSquarePlus size={14} />
+                    </button>
+                    <button
+                        type='button'
+                        onClick={() => setShowHistory(!showHistory)}
+                        disabled={sending || pastChats.length === 0}
+                        title='Chat History'
+                        aria-label='Chat History'
+                        className={`rounded-md p-1 transition-colors hover:bg-white/[0.06] hover:text-zinc-200 disabled:pointer-events-none disabled:opacity-30
+                            ${showHistory ? 'bg-white/[0.06] text-zinc-200' : 'text-zinc-500'}`}
+                    >
+                        <History size={14} />
                     </button>
                     {onClose && (
                         <button
@@ -362,6 +619,41 @@ function AiChat({ projectId, onClose }) {
                     )}
                 </div>
             </div>
+
+            <AnimatePresence>
+                {showHistory && (
+                    <motion.div
+                        initial={{ opacity: 0, y: -6 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: -6 }}
+                        transition={{ duration: 0.15 }}
+                        className='absolute inset-x-0 top-10 z-20 max-h-80 w-72 overflow-y-auto border-b border-white/[0.08] bg-[#131316] py-1 shadow-2xl shadow-black/60'
+                    >
+                        <div className='px-3 pb-1 pt-1.5 text-[10px] font-semibold uppercase tracking-wider text-zinc-600'>Chats</div>
+                        {pastChats.map((chat) => (
+                            <div
+                                key={chat.id}
+                                className={`group mx-1 flex items-center gap-2 rounded-md px-2 py-1.5 transition-colors hover:bg-white/[0.05]
+                                    ${chat.id === store.activeId ? 'bg-white/[0.04]' : ''}`}
+                            >
+                                <button type='button' onClick={() => openChat(chat.id)} className='min-w-0 flex-1 text-left'>
+                                    <span className='block truncate text-[12px] text-zinc-300'>{chatTitle(chat)}</span>
+                                    <span className='text-[10px] text-zinc-600'>{timeAgo(chat.updatedAt)}</span>
+                                </button>
+                                <button
+                                    type='button'
+                                    onClick={() => deleteChat(chat.id)}
+                                    title='Delete chat'
+                                    aria-label='Delete chat'
+                                    className='shrink-0 rounded p-1 text-zinc-600 opacity-0 transition hover:bg-white/[0.08] hover:text-rose-300 group-hover:opacity-100'
+                                >
+                                    <Trash2 size={12} />
+                                </button>
+                            </div>
+                        ))}
+                    </motion.div>
+                )}
+            </AnimatePresence>
 
             <div
                 ref={scrollRef}
@@ -382,6 +674,17 @@ function AiChat({ projectId, onClose }) {
             </div>
 
             <div className='w-72 shrink-0 border-t border-white/[0.06] bg-[#111113]/95 px-2.5 py-2'>
+                {aiChanges.length > 0 && (
+                    <ChangesPanel
+                        changes={aiChanges}
+                        onOpen={onOpenChange}
+                        onKeep={onKeepChange}
+                        onUndo={onUndoChange}
+                        onRedo={onRedoChange}
+                        onKeepAll={onKeepAll}
+                        onUndoAll={onUndoAll}
+                    />
+                )}
                 <AnimatePresence initial={false}>
                     {attachments.length > 0 && (
                         <motion.div
@@ -434,29 +737,35 @@ function AiChat({ projectId, onClose }) {
                             </span>
                         </div>
 
-                        <motion.button
-                            type='button'
-                            onClick={() => send(input, attachments)}
-                            disabled={!canSend}
-                            whileHover={canSend ? { scale: 1.06 } : undefined}
-                            whileTap={canSend ? { scale: 0.94 } : undefined}
-                            title='Send message'
-                            aria-label='Send message'
-                            className={`flex size-7 shrink-0 items-center justify-center rounded-lg transition-colors ${canSend
-                                ? 'bg-gradient-to-br from-sky-500 to-violet-500 text-white shadow-lg shadow-sky-500/20'
-                                : 'bg-white/[0.05] text-zinc-600'
-                                }`}
-                        >
-                            {sending ? (
-                                <motion.span
-                                    className='size-3 rounded-full border-[1.5px] border-zinc-600 border-t-zinc-300'
-                                    animate={{ rotate: 360 }}
-                                    transition={{ duration: 0.7, repeat: Infinity, ease: 'linear' }}
-                                />
-                            ) : (
+                        {sending ? (
+                            <motion.button
+                                type='button'
+                                onClick={stop}
+                                whileHover={{ scale: 1.06 }}
+                                whileTap={{ scale: 0.94 }}
+                                title='Stop'
+                                aria-label='Stop'
+                                className='flex size-7 shrink-0 items-center justify-center rounded-lg bg-white/[0.08] text-zinc-200 transition-colors hover:bg-white/[0.12]'
+                            >
+                                <Square size={11} fill='currentColor' />
+                            </motion.button>
+                        ) : (
+                            <motion.button
+                                type='button'
+                                onClick={() => send(input, attachments)}
+                                disabled={!canSend}
+                                whileHover={canSend ? { scale: 1.06 } : undefined}
+                                whileTap={canSend ? { scale: 0.94 } : undefined}
+                                title='Send message'
+                                aria-label='Send message'
+                                className={`flex size-7 shrink-0 items-center justify-center rounded-lg transition-colors ${canSend
+                                    ? 'bg-gradient-to-br from-sky-500 to-violet-500 text-white shadow-lg shadow-sky-500/20'
+                                    : 'bg-white/[0.05] text-zinc-600'
+                                    }`}
+                            >
                                 <ArrowUp size={15} strokeWidth={2.5} />
-                            )}
-                        </motion.button>
+                            </motion.button>
+                        )}
                     </div>
                 </div>
             </div>

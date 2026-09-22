@@ -218,9 +218,12 @@ export class Shell {
         return `/${segments.join('/')}`
     }
 
-    // Prompt path, with the project root shown as ~ like a home folder
+    // Prompt path, with the project root shown as ~ like a home folder. A folder from the
+    // user's device is shown by name, e.g. ~/my-app/src
     displayPath() {
-        return this.cwd.length ? `~/${this.cwd.join('/')}` : '~'
+        const onDevice = /^(fsa|local):/.test(this.root._id ?? '')
+        const segments = onDevice ? [this.root.name, ...this.cwd] : this.cwd
+        return segments.length ? `~/${segments.join('/')}` : '~'
     }
 
     resolve(path = '') {
@@ -305,6 +308,16 @@ export class Shell {
         const result = await updateFile(node._id, { name })
         if (!result) throw new ShellError(`cannot rename '${node.name}'`)
         node.name = name
+        // Ids of files on the user's device are paths, so a rename changes them for the whole subtree
+        if (result._id && result._id !== node._id) {
+            const from = node._id
+            const remap = (n) => {
+                n._id = result._id + n._id.slice(from.length)
+                if (n !== node && n.parentId) n.parentId = result._id + n.parentId.slice(from.length)
+                n.children?.forEach(remap)
+            }
+            remap(node)
+        }
         parent.children = [...parent.children].sort(byName)
         this.changed = true
     }

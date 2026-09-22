@@ -1,8 +1,8 @@
 import { api } from "../utils/axios"
 
-export const createProject=async({name,description})=>{
+export const createProject=async({name,description,folderName})=>{
        try {
-        const {data} = await api.post("/api/projects", { name, description })
+        const {data} = await api.post("/api/projects", { name, description, folderName })
         return data
        } catch (error) {
         console.log(error)
@@ -53,6 +53,16 @@ export const toggleStar=async(id)=>{
 export const deleteProject=async(id)=>{
        try {
         const {data} = await api.delete(`/api/projects/${id}`)
+        return data
+       } catch (error) {
+        console.log(error)
+        return null
+       }
+}
+
+export const linkProjectFolder=async(id,folderName)=>{
+       try {
+        const {data} = await api.patch(`/api/projects/${id}/folder`, { folderName })
         return data
        } catch (error) {
         console.log(error)
